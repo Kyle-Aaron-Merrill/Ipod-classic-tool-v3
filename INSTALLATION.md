@@ -17,6 +17,21 @@ If you have a packaged app (`.exe`, `.dmg`, `.AppImage`):
 - ✅ yt-dlp auto-downloads on first YouTube download
 - ✅ No manual setup needed
 
+#### Windows Users
+
+**Two options:**
+
+1. **Full Installer** (Recommended)
+   - Download: `iPod Classic Tool Setup 3.0.0.exe`
+   - Run the installer and follow the setup wizard
+   - Creates Start Menu shortcuts and desktop icon
+   - Can uninstall via Control Panel
+
+2. **Portable Executable** (No installation)
+   - Download: `iPod Classic Tool-3.0.0-portable.exe`
+   - Just run the `.exe` - no installation needed
+   - No registry changes, can delete when done
+
 ---
 
 ### Option 2: From Source (For Developers)
