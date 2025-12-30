@@ -1,0 +1,18 @@
+# Python dependencies for iPod Classic Tool v3
+# Install with: pip install -r requirements.txt
+# Or: pip3 install -r requirements.txt (on macOS/Linux)
+
+# Image processing for album cover art
+pillow>=10.0.0
+
+# HTTP requests for fetching metadata and cover art
+requests>=2.31.0
+
+# MP3 metadata embedding (ID3 tags)
+mutagen>=1.46.0
+
+# OpenAI API for GPT metadata extraction
+openai>=1.0.0
+
+# YouTube content downloading and playlist parsing
+yt-dlp>=2024.1.0

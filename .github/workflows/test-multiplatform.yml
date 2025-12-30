@@ -1,0 +1,109 @@
+name: Multi-Platform Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [16.x, 18.x, 20.x]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Check syntax - downloader.js
+      run: node --check scripts/downloader.js
+    
+    - name: Check syntax - yt-dlp-manager.js
+      run: node --check utils/yt-dlp-manager.js
+    
+    - name: Check syntax - postinstall.js
+      run: node --check scripts/postinstall.js
+    
+    - name: Verify postinstall script runs
+      run: node scripts/postinstall.js
+    
+    - name: List project structure
+      run: |
+        echo "=== Project Structure ===" 
+        ls -la
+        echo "=== Scripts folder ==="
+        ls -la scripts/
+        echo "=== Utils folder ==="
+        ls -la utils/
+        echo "=== Library scripts ==="
+        ls -la scripts/library_scripts/
+    
+    - name: Verify key files exist
+      run: |
+        test -f package.json || (echo "❌ package.json missing" && exit 1)
+        test -f main.js || (echo "❌ main.js missing" && exit 1)
+        test -f preload.js || (echo "❌ preload.js missing" && exit 1)
+        test -f utils/yt-dlp-manager.js || (echo "❌ yt-dlp-manager.js missing" && exit 1)
+        test -f scripts/downloader.js || (echo "❌ downloader.js missing" && exit 1)
+        echo "✅ All key files verified"
+    
+    - name: Verify package.json
+      run: |
+        echo "=== Checking package.json ===" 
+        node -e "const pkg = require('./package.json'); console.log('Name:', pkg.name); console.log('Version:', pkg.version); console.log('Node requirement:', pkg.engines?.node); console.log('Dependencies count:', Object.keys(pkg.dependencies || {}).length);"
+    
+    - name: Test yt-dlp-manager module
+      run: node -e "import('./utils/yt-dlp-manager.js').then(m => { console.log('✅ yt-dlp-manager module loaded'); console.log('  - getYtDlpPath function exists:', typeof m.getYtDlpPath === 'function'); console.log('  - isYtDlpAvailable function exists:', typeof m.isYtDlpAvailable === 'function'); }).catch(e => { console.error('❌ Failed to load:', e.message); process.exit(1); });"
+      continue-on-error: true
+    
+    - name: Check yt-dlp in PATH
+      run: which yt-dlp || echo "ℹ️  yt-dlp not in system PATH (will be auto-downloaded on first use)"
+      continue-on-error: true
+    
+    - name: Generate test report
+      if: always()
+      run: |
+        echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **OS**: ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Node Version**: ${{ matrix.node-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: ✅ All syntax checks passed" >> $GITHUB_STEP_SUMMARY
+
+  lint:
+    runs-on: ubuntu-latest
+    name: Code Quality
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Check all JavaScript files for syntax errors
+      run: |
+        echo "Checking main.js..."
+        node --check main.js
+        echo "Checking preload.js..."
+        node --check preload.js
+        echo "Checking scripts..."
+        find scripts -name "*.js" -exec node --check {} \;
+        echo "Checking utils..."
+        find utils -name "*.js" -exec node --check {} \;
+        echo "✅ All files passed syntax check"

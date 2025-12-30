@@ -1,0 +1,135 @@
+<!--
+Copyright (c) 2025 Kyle-Aaron-Merrill
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Metadata Filer V3</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="main-layout-wrapper">
+            <div id="top-right-controls">
+                <button id="burger-btn" aria-label="Open settings">☰</button>
+            </div>
+
+            <div id="settings-menu" class="hidden">
+                <h3>Downloader Settings</h3>
+                                <div class="setting-row">
+                                    <label for="concurrency-input">Simultaneous downloads</label>
+                                    <input id="concurrency-input" type="number" min="1" step="1">
+                                </div>
+                                <div id="concurrency-info" class="muted small"></div>
+                                <div class="small-buttons" style="margin-top:8px;">
+                                    <button id="set-min-btn">Min</button>
+                                    <button id="set-default-btn">Normal</button>
+                                    <button id="set-max-btn">Max</button>
+                                </div>
+                <hr>
+                <h4>Network</h4>
+                <div class="setting-row">
+                    <label for="ip-input">IP Address</label>
+                    <input id="ip-input" type="text">
+                </div>
+                <div class="setting-row">
+                    <label for="port-input">Port</label>
+                    <input id="port-input" type="number" min="1" max="65535">
+                </div>
+                <hr>
+                <h4>Tidal</h4>
+                <div class="setting-row">
+                    <label for="tidal-enabled">Enabled</label>
+                        <label class="toggle" for="tidal-enabled">
+                            <input type="checkbox" id="tidal-enabled" name="tidal-enabled" checked>
+                            <span class="toggle-track" aria-hidden="true"></span>
+                        </label>
+                </div>
+                <div class="setting-row">
+                    <label for="tidal-client-id">Client ID</label>
+                    <input id="tidal-client-id" type="text">
+                </div>
+                <div class="setting-row">
+                    <label for="tidal-client-secret">Client Secret</label>
+                    <div class="input-with-icon">
+                        <input id="tidal-client-secret" type="password">
+                        <button id="tidal-secret-toggle" class="reveal-btn" aria-label="Toggle tidal secret">👁</button>
+                    </div>
+                </div>
+                <hr>
+                <h4>OpenAI</h4>
+                <div class="setting-row">
+                    <label for="openai-key">API Key</label>
+                    <div class="input-with-icon">
+                        <input id="openai-key" type="password">
+                        <button id="openai-key-toggle" class="reveal-btn" aria-label="Toggle api key">👁</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <label for="openai-org">Organization</label>
+                    <input id="openai-org" type="text">
+                </div>
+                <div class="setting-row">
+                    <label for="openai-project">Project ID</label>
+                    <input id="openai-project" type="text">
+                </div>
+                <div id="settings-error" class="error" style="display:none;"></div>
+                <div class="setting-actions">
+                    <button id="save-settings-btn" class="action-button">Save</button>
+                </div>
+            </div>
+      <div id="left-column">
+          <h1>Metadata Filer V3</h1>
+          
+          <div id="youtube-downloader-container">
+              <input type="text" id="youtube-video-input" placeholder="Paste or drop streaming link here...">
+              <button id="download-video-button">Download All Tracks</button>
+          </div>
+
+          <div id="status-indicators-container">
+              <div class="progress-group">
+                  <label class="status-label" id="current-file-progress-label">File: 0 / 0</label>
+                  <progress id="current-file-progress-bar" value="0" max="100"></progress>
+              </div>
+              <div class="progress-group">
+                  <label class="status-label" id="batch-progress-label">Batch: 0 / 0</label>
+                  <progress id="batch-progress-bar" value="0" max="100"></progress>
+              </div>
+          </div>
+
+          <div id="output-log-container">
+              <label class="status-label log-label">Application Process Log</label>
+              <textarea id="application-log-textarea" readonly></textarea>
+          </div>
+      </div>
+
+            <div id="right-column">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                        <label class="status-label">Download Queue</label>
+                        <button id="clear-queue-btn" class="small">Clear All</button>
+                    </div>
+                    <div id="link-queue-list"></div>
+            </div>
+  </div>
+  <script src="./renderer.js"></script>
+</body>
+</html>

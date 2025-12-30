@@ -1,0 +1,777 @@
+:root {
+  /* HSL values are correctly defined */
+  --color-yale-blue-hsl: 204, 100%, 23%; 
+  --color-soft-peach-hsl: 42, 75%, 75%;
+  --color-inferno-hsl: 0, 100%, 32%;
+  --color-harvest-orange-hsl: 28, 100%, 50%;
+  --color-tropical-teal-hsl: 182, 100%, 35%;
+
+  /* Settings / Burger menu palette derived from root colors */
+  --menu-bg: hsla(var(--color-yale-blue-hsl), 0.96);
+  --menu-surface: hsla(var(--color-yale-blue-hsl), 0.12);
+  --menu-border: hsla(var(--color-tropical-teal-hsl), 0.6);
+  --menu-accent: hsla(var(--color-tropical-teal-hsl), 0.9);
+  --menu-accent-subtle: hsla(var(--color-tropical-teal-hsl), 0.45);
+  --menu-action: hsla(var(--color-harvest-orange-hsl), 1);
+  --menu-danger: hsla(var(--color-inferno-hsl), 1);
+  --menu-text: hsla(var(--color-soft-peach-hsl), 1);
+  --menu-muted: rgba(255,255,255,0.04);
+  --menu-shadow: 0 10px 26px rgba(0,0,0,0.7);
+}
+ 
+/* Update this in styles.css */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0; /* Note: index.html shows 20px padding, you may want to move this to an inner wrapper */
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background-color: hsla(var(--color-yale-blue-hsl), 1); 
+  color: hsla(var(--color-soft-peach-hsl), 1); 
+}
+ 
+h1 {
+  /* ✅ FIX: Use the hsla() function with the HSL variable and full opacity (1) */
+  color: hsla(var(--color-soft-peach-hsl), 1); 
+  
+  text-align: center;
+  margin-top: 50px; 
+  font-size: 3em;
+}
+/* Styling for the standard file input (like the one in .file-area) */
+#file-uploader {
+  display: block; /* Makes it take up its own line */
+  margin: 15px 0;
+  padding: 10px;
+  /* This makes the text visible against the Yale Blue background */
+  color: var(--color-soft-peach); 
+  border: 1px solid var(--color-tropical-teal);
+  border-radius: 4px;
+  width: 100%;
+}
+
+/* ---------------------------------------------------- */
+
+/* Styling for the YouTube Download Container */
+#youtube-downloader-container {
+  display: flex;
+    gap: 10px;
+    max-width: 1200px;
+    padding: 15px;
+    border: 1px solid var(--color-tropical-teal);
+    border-radius: 8px;
+    background-color: rgba(0, 0, 0, 0.2);
+    margin: auto;
+}
+
+/* Styling the Text Input */
+#youtube-video-input {
+  flex-grow: 1; /* Allows the input to take up most of the space */
+  padding: 10px;
+  border: 1px solid var(--color-tropical-teal);
+  border-radius: 4px;
+  /* Use a dark background and light text for contrast */
+  background-color: var(--color-yale-blue); 
+  color: var(--color-soft-peach);
+}
+
+/* Styling the Button */
+#download-video-button, 
+#process-file-btn { /* Apply styles to both buttons */
+  padding: 10px 15px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  
+  /* Using Inferno as the primary action/accent color */
+  background-color: var(--color-inferno); 
+  color: var(--color-soft-peach); /* Use Soft Peach for high-contrast text */
+  transition: background-color 0.2s;
+}
+
+#download-video-button:hover,
+#process-file-btn:hover {
+  /* Slightly lighter shade of Inferno on hover */
+  background-color: #c00000; 
+}
+/* Styling for the Navigation Actions Container */
+#navigation-actions-container {
+    max-width: 1200px;
+    margin: 20px auto 10px auto; /* Centers the container below the H1 */
+    display: flex;
+    padding: 10px;
+    border-bottom: 1px solid var(--color-tropical-teal);
+    justify-content: space-evenly;
+}
+
+/* Styling for button spacing */
+.spaced-button {
+    margin: 0 10px; /* Add space between the buttons */
+}
+
+/* -------------------------------------------------- */
+/* PROGRESS INDICATORS (Harvest Orange Fill) */
+/* -------------------------------------------------- */
+
+#status-indicators-container {
+  /* Style the container for layout */
+  margin: 20px auto;
+  padding: 15px;
+  display: grid;
+  grid-template-columns: auto 1fr; /* Label column | Bar column */
+  gap: 10px 20px; /* Vertical gap | Horizontal gap */
+  
+  /* Using a softer border for this information area */
+  border: 1px solid hsla(var(--color-harvest-orange-hsl), 0.5); 
+  border-radius: 8px;
+  background-color: hsla(var(--color-yale-blue-hsl), 0.3);
+}
+
+/* Style the Labels */
+.status-label {
+  /* Text Color: Soft Peach */
+  color: hsla(var(--color-harvest-orange-hsl), 1);
+  font-weight: bold;
+  align-self: center; /* Vertically center the label text */
+  white-space: nowrap; /* Prevents the label from wrapping */
+}
+
+/* Style the Progress Bar element itself */
+#current-file-progress-bar,
+#batch-progress-bar {
+  width: 100%; /* Make it fill the grid column */
+  height: 14px;
+  /* Resetting appearance for consistent cross-browser styling */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: none;
+  border-radius: 7px;
+  overflow: hidden; /* Important for clean edges */
+}
+
+/* Styling the track (the empty background of the bar) for Webkit (Chrome, Safari) */
+#current-file-progress-bar::-webkit-progress-bar,
+#batch-progress-bar::-webkit-progress-bar {
+  /* Background: Lighter Yale Blue */
+  background-color: hsla(var(--color-yale-blue-hsl), 0.6);
+  border-radius: 7px;
+}
+
+/* Styling the fill (the completed part) for Webkit */
+#current-file-progress-bar::-webkit-progress-value,
+#batch-progress-bar::-webkit-progress-value {
+  /* Fill Color: Harvest Orange */
+  background-color: hsla(var(--color-harvest-orange-hsl), 1);
+  transition: width 0.3s ease; /* Optional: smooth update animation */
+}
+
+/* Styling the fill (the completed part) for Firefox */
+#current-file-progress-bar::-moz-progress-bar,
+#batch-progress-bar::-moz-progress-bar {
+  /* Fill Color: Harvest Orange */
+  background-color: hsla(var(--color-harvest-orange-hsl), 1);
+}
+
+/* -------------------------------------------------- */
+/* LOG OUTPUT AREA (Tropical Teal Border, Soft Peach Text) */
+/* -------------------------------------------------- */
+
+#output-log-container {
+  display: flex;
+  height: 30vh;
+  flex-direction: column;
+  max-width: 1200px;
+  margin: 30px auto 20px auto; /* Ensure good spacing below other content */
+  padding: 15px;
+  /* Border: Use Tropical Teal for a classic terminal/log look */
+  border: 1px solid hsla(var(--color-tropical-teal-hsl), 0.7);
+  border-radius: 8px;
+  /* Background: Darker than the rest of the UI for separation */
+  background-color: hsla(0, 0%, 0%, 0.4); 
+}
+
+/* Style the Log Label */
+.log-label {
+  /* Tropical Teal for the label text */
+  color: hsla(var(--color-tropical-teal-hsl), 1);
+  display: block; /* Make it take its own line */
+  margin-bottom: 5px;
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 0.9em;
+}
+
+/* Style the Area that contains the Textarea */
+#log-display-area {
+  /* Ensures the textarea fills the container */
+  height: 250px; 
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+/* Style the Textarea itself */
+#application-log-textarea {
+  width: 100%;
+  height: 100%; /* Fills the parent div */
+  box-sizing: border-box; /* Include padding and border in the element's total width and height */
+  padding: 10px;
+  border: none;
+  resize: none; /* Prevent manual resizing by the user */
+  
+  /* Background: Near-black for terminal look */
+  background-color: #0d0d0d; 
+  /* Text Color: Soft Peach (or pure white for high contrast) */
+  color: hsla(var(--color-soft-peach-hsl), 1); 
+  font-family: 'Consolas', 'Courier New', monospace; /* Monospace font is standard for logs */
+  font-size: 0.95em;
+  line-height: 1.4;
+  
+  /* Remove the focus outline */
+  outline: none; 
+  
+  /* Optional: Add a subtle inner shadow to make it look recessed */
+  box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+/* -------------------------------------------------- */
+/* GLOBAL UTILITY STYLES FOR BUTTONS (Layered 3D Base) */
+/* -------------------------------------------------- */
+
+.action-button,
+#process-file-btn,
+#download-video-button {
+    padding: 10px 25px;
+    border: none;
+    border-radius: 2px; 
+    cursor: pointer;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: hsla(var(--color-yale-blue-hsl), 1);
+    
+    /* Key Base Shadow Stacking (Going from top layer down) */
+    box-shadow: 
+    /* Layer 1 (Inner Shine/Top Border) */
+    0px 0px 0 1px hsla(var(--color-tropical-teal-hsl), 0.6) inset,
+    
+    /* Layer 2 (Inner Dark Border/Shadow on the face) */
+    0 -3px 1px 5px rgba(0, 0, 0, 0.2) inset,
+    
+    /* Layer 4 (The Base/Black Layer) - Thinner (Spread changed from 9px to 5px) */
+    0 5px 0px 6px hsla(0, 0%, 5%, 1),
+    
+    /* Layer 5 (Outer Light Border/Edge) */
+    0 5.5px 0 7px hsla(var(--color-soft-peach-hsl), 0.2);
+        
+    /* Transition applied to box-shadow and transform for smooth press/hover */
+    transition: all 0.1s ease-out;
+    margin-bottom: 1em;
+}
+
+/* Specific background colors (Top Color) */
+.action-button {
+    background-color: hsla(var(--color-harvest-orange-hsl), 1); 
+    color: antiquewhite;
+}
+#process-file-btn { 
+    background-color: hsla(var(--color-harvest-orange-hsl), 1); 
+    color: antiquewhite;
+}
+#download-video-button { 
+    background-color: hsla(var(--color-inferno-hsl), 1); 
+    color: antiquewhite;
+}
+
+
+/* Global Hover */
+.action-button:hover,
+#process-file-btn:hover {
+    background-color: hsla(var(--color-harvest-orange-hsl), 0.8);
+}
+#download-video-button:hover {
+    background-color: hsla(var(--color-inferno-hsl), 0.8);
+}
+
+/* Global Active (Super-Deep Key Press) */
+.action-button:active,
+#process-file-btn:active,
+#download-video-button:active {
+    /* Move the key down by the total height of the shadows (8px) */
+    transform: translateY(8px); 
+    
+    /* Flatten all outer shadows */
+    box-shadow: 
+        /* Layer 1 & 2 (Keep inset shadows for face definition) */
+        0 1px 2px hsla(var(--color-soft-peach-hsl), 0.6) inset,
+        0 -1px 2px rgba(0, 0, 0, 0.2) inset,
+        
+        /* Layer 3, 4, 5 (Set outer shadows to zero) */
+        0 0 0 transparent, 
+        0 0 0 transparent,
+        0 0 0 transparent;
+}
+/* -------------------------------------------------- */
+/* DIGITAL DISPLAY STYLING (Recessed Screen Look) */
+/* -------------------------------------------------- */
+
+#status-indicators-container {
+  max-width: 1169px;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px 20px;
+  
+  /* 1. Recessed Look using Inner Shadows (Key Change) */
+  border: 1em solid rgb(0 0 0 / 60%);
+  border-radius: 6px;
+  
+  /* Simulate a deep inset screen using two inset shadows */
+  box-shadow: 
+      0 0 5px hsla(var(--color-tropical-teal-hsl), 0.5), /* Subtle inner light/glow */
+      inset 0 0 15px rgba(0, 0, 0); /* Strong dark shadow for depth */
+      
+  
+  /* 2. LCD Background Color */
+  background-color: #263631 /* Very dark, slightly desaturated blue/gray */
+}
+.status-label.log-label{
+  align-self: flex-start;
+}
+
+/* Style the Labels (Digital Text Look) */
+.status-label {
+  
+  /* Text Color: Tropical Teal (to look like lit-up text) */
+  color: hsla(var(--color-soft-peach-hsl), 1);
+  font-weight: normal;
+  align-self: center; 
+  white-space: nowrap; 
+  
+  /* Digital/Monospace Font for display effect */
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 1.1em;
+  
+  /* Optional: Subtle text shadow for "lit" effect */
+  text-shadow: 0 0 3px hsla(var(--color-tropical-teal-hsl), 0.7);
+}
+
+/* -------------------------------------------------- */
+/* PROGRESS BAR STYLING (Tropical Teal Fill) */
+/* -------------------------------------------------- */
+
+/* Adjusting the progress bars to match the digital theme */
+#current-file-progress-bar,
+#batch-progress-bar {
+  /* ... existing size rules ... */
+  height: 14px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 1px solid hsla(var(--color-tropical-teal-hsl), 0.7); /* Border matches text color */
+  border-radius: 7px;
+  overflow: hidden;
+  background-color: transparent; /* Ensure track background is handled by value/bar */
+}
+
+/* Styling the track (the empty background of the bar) for Webkit (Chrome, Safari) */
+#current-file-progress-bar::-webkit-progress-bar,
+#batch-progress-bar::-webkit-progress-bar {
+  /* Background: A very dark color similar to the container */
+  background-color: #04080b; 
+  border-radius: 7px;
+}
+
+/* Styling the fill (the completed part) for Webkit/Firefox */
+#current-file-progress-bar::-webkit-progress-value,
+#batch-progress-bar::-webkit-progress-value,
+#current-file-progress-bar::-moz-progress-bar,
+#batch-progress-bar::-moz-progress-bar {
+  /* Fill Color: Tropical Teal (matches text color) */
+  background-color: hsla(var(--color-tropical-teal-hsl), 1);
+  transition: width 0.3s ease; 
+}
+#main-layout-wrapper{
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+}
+#top-right-controls{
+  position: fixed;
+  top: 12px;
+  right: 18px;
+}
+#burger-btn{
+  background: transparent;
+  border: 1px solid hsla(var(--color-tropical-teal-hsl),0.6);
+  color: hsla(var(--color-soft-peach-hsl),1);
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+#settings-menu{ /* consolidated later */ }
+.settings-row input[type="number"]{ -moz-appearance:textfield; }
+.settings-row input::-webkit-outer-spin-button,
+.settings-row input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Make all inputs inside the settings menu dark with a subtle shadow */
+#settings-menu input,
+#settings-menu select,
+#settings-menu textarea {
+  /* slightly lighter dark background for better contrast */
+  background: rgba(34,37,41,0.96);
+  color: hsla(var(--color-soft-peach-hsl), 1);
+  /* teal-tinted border for visibility */
+  border: 1px solid hsla(var(--color-tropical-teal-hsl), 0.55);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 1.02rem;
+  min-height: 40px;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.03);
+  box-sizing: border-box;
+}
+
+/* Modern toggle switch for checkboxes inside settings */
+.toggle{ position: relative; display:inline-block; width:54px; height:30px; }
+.toggle input[type="checkbox"]{ position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; z-index:2; cursor:pointer; }
+.toggle .toggle-track{ display:block; width:100%; height:100%; border-radius:999px; background: rgba(255,255,255,0.06); border:1px solid var(--menu-accent-subtle); transition: background 220ms ease, box-shadow 180ms ease; position:relative; }
+.toggle .toggle-track::after{ content:''; position:absolute; top:3px; left:3px; width:24px; height:24px; border-radius:50%; background:var(--menu-text); box-shadow: 0 4px 10px rgba(0,0,0,0.45); transition: transform 220ms cubic-bezier(.2,.9,.3,1), left 220ms; }
+.toggle input[type="checkbox"]:checked + .toggle-track{ background: linear-gradient(90deg, var(--menu-accent), var(--menu-accent-subtle)); border-color: var(--menu-accent); }
+.toggle input[type="checkbox"]:checked + .toggle-track::after{ transform: translateX(24px); background: antiquewhite; }
+.toggle input[type="checkbox"]:focus-visible + .toggle-track{ box-shadow: 0 0 0 4px rgba(24,189,180,0.12); }
+
+/* smaller when inside setting-row so it aligns nicely */
+.setting-row .toggle{ width:48px; height:26px; }
+.setting-row .toggle .toggle-track::after{ width:20px; height:20px; top:3px; left:3px; }
+
+/* Ensure smaller inline inputs keep expected height */
+#settings-menu input[type="checkbox"] { box-shadow: none; background: transparent; border: none; padding: 0; }
+#settings-menu .input-with-icon input { padding-right: 38px; }
+.hidden{ display: none; }
+.setting-row{ display:flex; gap:10px; align-items:center; margin:8px 0; }
+.setting-row label{ width:110px; color: hsla(var(--color-soft-peach-hsl),1); }
+#concurrency-input{ flex:1; padding:6px; border-radius:4px; border:1px solid #333; background:#111; color:var(--color-soft-peach); }
+.small-buttons{ display:flex; gap:6px; margin-left:8px; }
+.small-buttons button{ padding:6px 8px; border-radius:4px; border:1px solid #333; background:#222; color:var(--color-soft-peach); cursor:pointer; font-size:0.9em; }
+
+.reveal-btn{ margin-left:8px; padding:6px 8px; border-radius:4px; border:1px solid #333; background:#222; color:var(--color-soft-peach); cursor:pointer; }
+.input-with-icon{ position:relative; flex:1; display:inline-flex; align-items:center; }
+.input-with-icon input{ width:100%; box-sizing:border-box; padding-right:38px; }
+.input-with-icon input{
+  width:100%;
+  box-sizing:border-box;
+  padding-right:38px;
+  background: rgba(10,10,10,0.9); /* dark background */
+  color: hsla(var(--color-soft-peach-hsl), 1);
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 4px;
+  padding: 8px 38px 8px 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.02);
+}
+/* align inline icon inputs with the new settings input look */
+.input-with-icon input{
+  background: rgba(34,37,41,0.96);
+  border: 1px solid hsla(var(--color-tropical-teal-hsl), 0.55);
+  border-radius: 6px;
+  padding: 10px 38px 10px 10px;
+  font-size: 1.02rem;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.03);
+}
+.input-with-icon .reveal-btn{ position:absolute; right:6px; top:50%; transform:translateY(-50%); margin-left:0; padding:4px 6px; border-radius:4px; border:1px solid rgba(0,0,0,0.4); background:transparent; color:var(--color-soft-peach); cursor:pointer; }
+.input-with-icon .reveal-btn:focus{ outline:2px solid rgba(255,255,255,0.08); }
+/* clearer placeholder for visibility */
+#settings-menu input::placeholder,
+#settings-menu textarea::placeholder { color: rgba(255,255,255,0.55); }
+
+/* Use palette colors for small buttons and action button inside settings */
+.small-buttons button{ background: transparent; border: 1px solid var(--menu-accent-subtle); color: var(--menu-text); }
+.small-buttons button:hover{ background: rgba(255,255,255,0.02); }
+.setting-actions button{ background: var(--menu-action); border-color: rgba(0,0,0,0.4); color: antiquewhite; }
+.error{ color: #ff8a8a; background: rgba(255,138,138,0.06); padding:6px; border-radius:4px; margin-top:8px; }
+.muted{ color:#9aa; font-size:0.9em; margin-bottom:8px; }
+.small{ font-size:0.9em; }
+.setting-actions{ display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:8px; }
+.setting-actions button{ padding:6px 8px; border-radius:4px; border:1px solid #333; background:#222; color:var(--color-soft-peach); cursor:pointer; }
+#left-column{
+  width: 70%;
+  padding-left: 1em;
+}
+#right-column {
+  display: none;
+  width: 30%;
+  padding: 1em;
+  margin: 3em 0 0 0;
+}
+/* Right column label */
+#right-column > label{
+  color: hsla(var(--color-soft-peach-hsl), 1);
+  display: flex;
+  justify-content: center;
+  font-size: xx-large;
+  margin-bottom: 1em;
+}
+
+/* Add spacing below the header container inside right column */
+#right-column > div:nth-child(1) {
+  margin-bottom: 0.75rem;
+}
+
+.settings-row input[type="number"]{ -moz-appearance:textfield; }
+.settings-row input::-webkit-outer-spin-button,
+.settings-row input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Settings menu base (positioning + appearance) */
+#settings-menu {
+  position: fixed !important;
+  top: 48px !important;
+  right: 18px !important;
+  width: 320px !important;
+  background: var(--menu-bg) !important;
+  border: 1px solid var(--menu-border) !important;
+  padding: 12px !important;
+  border-radius: 6px !important;
+  z-index: 9999 !important;
+  /* ensure scrolling is available and visible across platforms */
+  max-height: 60vh !important; /* smaller so scrollbar appears on most screens */
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 12px; /* room for scrollbar */
+  box-shadow: var(--menu-shadow);
+  color: var(--menu-text);
+}
+
+#settings-menu input,
+#settings-menu select,
+#settings-menu textarea {
+  background: var(--menu-surface);
+  color: var(--menu-text);
+  border: 1px solid var(--menu-accent-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.96rem;
+  min-height: 34px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.02);
+  box-sizing: border-box;
+}
+
+#settings-menu::-webkit-scrollbar { width: 12px; }
+#settings-menu::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 10px; }
+#settings-menu::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--menu-accent), var(--menu-accent-subtle)); border-radius: 10px; border: 2px solid rgba(0,0,0,0.55); }
+#settings-menu::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, var(--menu-accent), hsla(var(--color-tropical-teal-hsl),0.75)); }
+
+/* Firefox scrollbar */
+#settings-menu { scrollbar-width: thin; scrollbar-color: hsla(var(--color-tropical-teal-hsl),0.6) rgba(255,255,255,0.02); }
+
+/* Always-visible faint track on the right (helps indicate scrollability) */
+#settings-menu::after{
+  content: '';
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: 6px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.queue-card{
+  margin: auto;
+  font-size: smaller;
+  color: hsla(var(--color-tropical-teal-hsl), 1);
+  display: flex;
+  justify-content: space-between;
+  border: 7px solid rgb(0 0 0 / 60%);
+  border-radius: 6px;
+  box-shadow: 0 0 5px hsla(var(--color-tropical-teal-hsl), 0.5), inset 0 0 15px rgba(0, 0, 0);
+  background-color: #263631;
+  font-family: 'Consolas', 'Courier New', monospace;
+  margin-bottom: 0.5em;
+  align-items: center;
+}
+
+/* Clear queue button in the right-column header */
+#clear-queue-btn{ background: transparent; border: 1px solid var(--menu-accent-subtle); color: var(--menu-text); padding:6px 8px; border-radius:4px; cursor:pointer; }
+#clear-queue-btn:hover{ background: rgba(255,255,255,0.02); }
+#link-queue-list{
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-tropical-teal);
+  border-radius: 8px;
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 0.5em;
+  padding-bottom: 0;
+}
+.delete-btn{
+  margin: 2px 5px 10px 5px;
+  display: flex;
+  align-items: center;
+  font-size: smaller;
+  background-color: hsla(var(--color-inferno-hsl), 1);
+  color: antiquewhite;
+  padding: 5px 5px;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  font-weight: bold;
+  text-transform: uppercase;
+  /* Scaled down version */
+  box-shadow: 
+    0px 0px 0 1px hsla(var(--color-tropical-teal-hsl), 0.6) inset, /* Inner glow (unchanged) */
+    0 -2px 1px 2px rgba(0, 0, 0, 0.2) inset,                      /* Smaller inner depth */
+    0 3px 0px 3px hsla(0, 0%, 5%, 1),                             /* Reduced main height/width */
+    0 3.5px 0 4px hsla(var(--color-soft-peach-hsl), 0.2);          /* Reduced outer highlight */
+  transition: all 0.1s ease-out;
+  margin-bottom: 1em;
+}
+.queue-card > span{
+  padding: 5px;
+}
+
+/* Clamp long queue URLs with ellipsis */
+.queue-card .queue-url{
+  display:inline-block;
+  max-width: 62%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+/* ---------------------------------------------
+   Responsive: Tablet and Phone (Touch-first)
+   - Tablet breakpoint: up to 900px
+   - Phone breakpoint: up to 600px
+   - Small phone: up to 420px
+----------------------------------------------*/
+
+@media (max-width: 900px) {
+  /* General layout adjustments for tablets */
+  #main-layout-wrapper { padding: 14px; }
+
+  /* Stack main content vertically for more vertical space */
+  #youtube-downloader-container { flex-direction: column; gap: 12px; max-width: 100%; padding: 12px; }
+  #navigation-actions-container { flex-wrap: wrap; gap: 8px; padding: 8px; justify-content: center; }
+
+  /* Columns become full width */
+  #left-column, #right-column { width: 100%; padding: 0; }
+  #right-column { display: block; margin: 1em 0 0 0; }
+
+  /* Make inputs and buttons easier to tap */
+  input, textarea, select, .action-button, #download-video-button, #process-file-btn, .small-buttons button {
+    min-height: 44px; font-size: 1rem; padding: 10px 12px;
+  }
+
+  /* Slightly larger setting menu on tablets */
+  #settings-menu { width: 360px !important; max-height: 72vh !important; right: 12px !important; top: 12px !important; }
+  #settings-menu input, #settings-menu textarea, #settings-menu select { min-height: 44px; font-size: 1rem; }
+
+  /* Toggle slightly larger for touch */
+  .toggle { width: 60px; height: 34px; }
+  .toggle .toggle-track::after { width: 28px; height: 28px; top: 3px; left: 3px; }
+  .setting-row .toggle { width: 56px; height: 30px; }
+  .setting-row .toggle .toggle-track::after { width: 24px; height: 24px; }
+
+  /* Reveal button larger and easier to press */
+  .input-with-icon .reveal-btn { right: 8px; padding: 8px 10px; }
+
+  /* Ensure the right-side subtle scrollbar track doesn't overlap content */
+  #settings-menu::after { right: 10px; }
+}
+
+@media (max-width: 600px) {
+    #left-column {
+      width: 100% !important;
+      min-width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box;
+    }
+  /* Phone-first: stack and maximize touch targets */
+  h1 { font-size: 2rem; margin-top: 24px; }
+
+  /* Make primary containers fluid */
+  #youtube-downloader-container, #output-log-container, #status-indicators-container, #link-queue-list { margin: 12px auto; }
+
+  /* Stack the main layout vertically on phones */
+  #main-layout-wrapper { flex-direction: column; }
+
+  /* Navigation actions stacked */
+  #navigation-actions-container { flex-direction: column; align-items: stretch; gap: 8px; padding: 8px; }
+
+  /* Settings menu becomes wider and anchored closer to edges so it's easier to use */
+  #settings-menu {
+    left: 12px !important;
+    right: 12px !important;
+    top: auto !important;
+    bottom: 12px !important;
+    width: auto !important;
+    max-height: 80vh !important;
+    border-radius: 10px !important;
+    padding: 14px !important;
+  }
+
+  /* Enlarge interactive elements for thumbs */
+  #settings-menu input, #settings-menu textarea, #settings-menu select, .action-button, .small-buttons button { min-height: 48px; font-size: 1.03rem; }
+
+  /* Toggle controls larger and clearer on phones */
+  .toggle { width: 66px; height: 36px; }
+  .toggle .toggle-track::after { width: 30px; height: 30px; top: 3px; left: 3px; }
+  .setting-row .toggle { width: 62px; height: 34px; }
+  .setting-row label{ width: 90px; }
+
+  /* Make input-with-icon elements full width and easier to tap */
+  .input-with-icon { width: 100%; }
+  .input-with-icon input { font-size: 1.02rem; padding: 12px 46px 12px 12px; }
+  .input-with-icon .reveal-btn { padding: 8px 10px; }
+
+  /* Make small-buttons wrap and be full width where appropriate */
+  .small-buttons{ flex-wrap:wrap; gap:8px; }
+
+  /* Slight adjustments for log area on phones */
+  /* Reduced font size to improve density on small screens */
+  #application-log-textarea { font-size: 0.8rem; line-height:1.3; }
+}
+
+@media (max-width: 420px) {
+  /* Very small phones - keep things compact but tappable */
+  h1 { font-size: 1.6rem; margin-top: 18px; }
+  #settings-menu { padding: 12px !important; }
+  .setting-row label{ width: 80px; font-size: 0.95rem; }
+  #navigation-actions-container { padding: 6px; }
+  /* Reduce heavy shadows a bit to preserve contrast and performance */
+  .action-button, #download-video-button, #process-file-btn { box-shadow: none; }
+}
+
+/* Mobile-specific adjustments for queue cards (compact view) */
+@media (max-width: 600px) {
+  /* Reduce visual weight and height of queue cards on phones */
+  .queue-card {
+    margin: 6px auto;
+    padding: 6px 8px;
+    font-size: 0.8rem;
+    border-width: 2px;
+    border-radius: 6px;
+    box-shadow: none; /* simpler rendering on mobile */
+    background-color: #222e2a; /* slightly darker compact bg */
+    max-height: 72px;
+    overflow: hidden;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .queue-card > span { padding: 4px; }
+
+  /* Target any queue-* id (like long youtube queue ids) to cap height */
+  [id^="queue-"] {
+    max-height: 72px;
+    overflow: hidden;
+  }
+
+  /* If queue items contain images, scale them down */
+  .queue-card img { max-width: 56px; max-height: 56px; object-fit: cover; border-radius: 4px; }
+}

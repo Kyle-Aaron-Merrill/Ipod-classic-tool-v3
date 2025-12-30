@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Metadata Filler v2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
+        /* Smooth transition for showing/hiding Tidal fields */
+        #tidalFields.hidden { display: none; }
+    </style>
+</head>
+<body class="p-8 flex items-center justify-center min-h-screen">
+    <div class="w-full max-w-lg bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">Welcome to Metadata Filler v2</h1>
+        <p class="text-gray-500 mb-6">Please enter your credentials to get started. This configuration will be saved securely on your computer.</p>
+
+        <form id="setupForm" class="space-y-4">
+            <div>
+                <label for="apiKey" class="block text-sm font-medium text-gray-700">
+                    OpenAI API Key (sk-...) *
+                </label>
+                <p class="text-xs text-indigo-600 mb-2">
+                    Need an API key? 
+                    <a href="https://platform.openai.com/api-keys" target="_blank" class="font-semibold underline hover:text-indigo-800">
+                        platform.openai.com/api-keys
+                    </a>
+                </p>
+                <input type="password" id="apiKey" required
+                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition duration-150"
+                        placeholder="Enter your secret key">
+            </div>
+
+            <div>
+                <label for="organizationId" class="block text-sm font-medium text-gray-700">Organization ID (Optional)</label>
+                <input type="text" id="organizationId" 
+                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition duration-150"
+                        placeholder="Enter organization ID if needed">
+            </div>
+
+            <hr class="my-4">
+
+            <div class="pt-2">
+                <div class="flex items-center">
+                    <input type="checkbox" id="useTidal" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                    <label for="useTidal" class="ml-2 block text-sm font-medium text-gray-700">
+                        I am using Tidal 
+                    </label>
+                </div>
+            </div>
+
+            <div id="tidalFields" class="hidden space-y-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <p class="text-xs text-indigo-600 mb-2">
+                    Don't have credentials? Create them at:
+                    <a href="https://developer.tidal.com/dashboard" target="_blank" class="font-semibold underline hover:text-indigo-800">
+                        developer.tidal.com/dashboard
+                    </a>
+                </p>
+                <div>
+                    <label for="tidalClientId" class="block text-sm font-medium text-gray-700">Tidal Client ID</label>
+                    <input type="text" id="tidalClientId" 
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                </div>
+                <div>
+                    <label for="tidalClientSecret" class="block text-sm font-medium text-gray-700">Tidal Client Secret</label>
+                    <input type="password" id="tidalClientSecret" 
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                </div>
+            </div>
+
+            
+
+            
+
+            <div class="grid grid-cols-2 gap-4 pt-4">
+                <div>
+                    <label for="ipAddress" class="block text-sm font-medium text-gray-700">IP Address</label>
+                    <input type="text" id="ipAddress" value="192.168.1.1"
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                </div>
+                <div>
+                    <label for="port" class="block text-sm font-medium text-gray-700">Port</label>
+                    <input type="number" id="port" value="3000"
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                </div>
+            </div>
+
+            <button type="submit" id="submitButton"
+                    class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out mt-6">
+                Save & Launch App
+            </button>
+        </form>
+
+        <div id="message" class="mt-4 p-3 rounded-lg text-sm hidden"></div>
+    </div>
+
+    <script>
+        (function() {
+            const api = window.electronAPI; 
+
+            // Handle Tidal Toggle Visibility
+            const useTidalCheckbox = document.getElementById('useTidal');
+            const tidalFields = document.getElementById('tidalFields');
+
+            useTidalCheckbox.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    tidalFields.classList.remove('hidden');
+                } else {
+                    tidalFields.classList.add('hidden');
+                }
+            });
+
+            document.getElementById('setupForm').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const button = document.getElementById('submitButton');
+                const message = document.getElementById('message');
+                
+                button.disabled = true;
+                button.textContent = 'Saving...';
+                message.classList.add('hidden');
+
+                const config = {
+                    openai_credentials: {
+                        api_key: document.getElementById('apiKey').value.trim(),
+                        organization: document.getElementById('organizationId').value.trim(),
+                        project_id: "", 
+                    },
+                    tidal_credentials: {
+                        enabled: useTidalCheckbox.checked,
+                        client_id: document.getElementById('tidalClientId').value.trim(),
+                        client_secret: document.getElementById('tidalClientSecret').value.trim()
+                    },
+                    ip: document.getElementById('ipAddress').value.trim(),
+                    port: parseInt(document.getElementById('port').value.trim())
+                };
+
+                if (api && api.saveConfig) {
+                    api.saveConfig(config);
+                } else {
+                     console.error("IPC Error: window.electronAPI.saveConfig is not available.");
+                }
+            });
+
+            if (api && api.onSaveConfigReply) {
+                api.onSaveConfigReply(({ success, message: msg }) => {
+                    const button = document.getElementById('submitButton');
+                    const message = document.getElementById('message');
+                    button.disabled = false;
+                    button.textContent = 'Save & Launch App';
+                    
+                    message.textContent = success 
+                        ? 'Configuration saved! The main application is launching now...' 
+                        : `Error: ${msg || 'Failed to save configuration.'}`;
+                    
+                    message.classList.remove('hidden');
+                    message.className = 'mt-4 p-3 rounded-lg text-sm ' + (success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800');
+                });
+            }
+        })();
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const ipAddressInput = document.getElementById('ipAddress');
+            const api = window.electronAPI;
+            if (api && api.getLocalIp) {
+                try {
+                    const localIp = await api.getLocalIp(); 
+                    ipAddressInput.value = localIp; 
+                } catch (error) {
+                    console.error('Failed to get local IP:', error);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{
+  "name": "metadata-filler-v3",
+  "version": "3.0.0",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node scripts/library_scripts/test_runner.js",
+    "test:platform": "node scripts/test-platform.js",
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "optionalDependencies": {
+    "yt-dlp": "^2024.11.18"
+  },
+  "devDependencies": {
+    "electron": "^39.2.7"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "node-fetch": "^3.3.2",
+    "node-youtube-music": "^0.10.3",
+    "playwright": "^1.57.0",
+    "puppeteer": "^24.33.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "ytmusic-api": "^5.3.0",
+    "node-id3": "^0.2.3",
+    "sharp": "^0.33.1",
+    "openai": "^4.47.0",
+    "ffmpeg-static": "^5.2.0"
+  }
+}
