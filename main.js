@@ -32,7 +32,33 @@ const APP_DATA_DIR = app.getPath('userData');
 const CONFIG_PATH = path.join(APP_DATA_DIR, 'config.json');
 const COOKIES_PATH = path.join(APP_DATA_DIR, 'cookies.txt');
 const MUSIC_PATH = app.getPath('music');
+const LOG_PATH = path.join(APP_DATA_DIR, 'app.log');
 const DOWNLOADER_PATH = path.join(PROJECT_ROOT, 'scripts', 'downloader.js');
+
+// --- Setup Logging ---
+function writeLog(message) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] ${message}\n`;
+    
+    try {
+        fs.appendFileSync(LOG_PATH, logMessage);
+        console.log(message); // Also log to console
+    } catch (err) {
+        console.error(`Failed to write log: ${err.message}`);
+    }
+}
+
+// Redirect console.log and console.error to file
+const originalLog = console.log;
+const originalError = console.error;
+console.log = (...args) => {
+    originalLog(...args);
+    writeLog(`[LOG] ${args.join(' ')}`);
+};
+console.error = (...args) => {
+    originalError(...args);
+    writeLog(`[ERROR] ${args.join(' ')}`);
+};
 const CONVERTER_PATH = path.join(PROJECT_ROOT, 'scripts', 'link-convert.js');
 const DLP_PATH = path.join(PROJECT_ROOT, 'scripts', 'get_yt_dlp_link.js');
 
