@@ -26,7 +26,17 @@ async function downloadWithRetry(args, track, onProgress) {
     let currentArgs = [...args];
     
     // Get yt-dlp path (downloads if needed)
-    const ytDlpPath = await getYtDlpPath();
+    let ytDlpPath;
+    try {
+        ytDlpPath = await getYtDlpPath();
+        console.log(`[Downloader] Using yt-dlp from: ${ytDlpPath}`);
+    } catch (err) {
+        console.error(`[Downloader] FATAL: Could not locate yt-dlp: ${err.message}`);
+        if (process.send) {
+            process.send({ type: 'ERROR', message: `yt-dlp error: ${err.message}` });
+        }
+        throw new Error(`Failed to get yt-dlp path: ${err.message}`);
+    }
 
     while (attempts < maxAttempts) {
         try {
@@ -81,6 +91,8 @@ async function processAlbum() {
     const globalDownloadUrl = manifest.download_url;
     const tracksToProcess = manifest.Tracks.filter(t => t.status === "pending" || t.status === "failed");
 
+    console.log(`[Downloader] Processing ${tracksToProcess.length} tracks from: ${globalDownloadUrl}`);
+
     for (const track of tracksToProcess) {
         try {
             const index = manifest.Tracks.findIndex(t => t.title === track.title);
@@ -113,4 +125,13 @@ async function processAlbum() {
         }
     }
 }
-processAlbum();
+
+// Execute with error handling
+processAlbum().catch(err => {
+    console.error(`[Downloader] FATAL ERROR: ${err.message}`);
+    console.error(err.stack);
+    if (process.send) {
+        process.send({ type: 'ERROR', message: err.message });
+    }
+    process.exit(1);
+});

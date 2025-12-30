@@ -102,6 +102,14 @@ function download(manifestPath) {
                 }
             }
 
+            // Handle downloader errors
+            if (msg.type === 'ERROR') {
+                uiLog(`❌ [Downloader Error] ${msg.message}`);
+                console.error(`[Main] Downloader error: ${msg.message}`);
+                downloader.kill();
+                reject(new Error(msg.message));
+            }
+
             // Handle the 403 Forbidden / Cookie refresh fix
             if (msg.type === 'REFRESH_COOKIES_REQUEST') {
                 uiLog("⚠️ [Main] Downloader requested cookie refresh...");

@@ -38,10 +38,11 @@ async function downloadYtDlp() {
     try {
         if (!fs.existsSync(YT_DLP_DIR)) {
             fs.mkdirSync(YT_DLP_DIR, { recursive: true });
+            console.log(`[yt-dlp-manager] Created directory: ${YT_DLP_DIR}`);
         }
 
         const downloadUrl = getDownloadUrl();
-        console.log(`Fetching: ${downloadUrl}`);
+        console.log(`[yt-dlp-manager] 📥 Fetching from: ${downloadUrl}`);
 
         const response = await fetch(downloadUrl, { 
             headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -54,21 +55,22 @@ async function downloadYtDlp() {
 
         // Write file
         const buffer = await response.buffer();
+        console.log(`[yt-dlp-manager] Downloaded ${buffer.length} bytes`);
         fs.writeFileSync(YT_DLP_PATH, buffer);
+        console.log(`[yt-dlp-manager] Written to: ${YT_DLP_PATH}`);
 
         // Make executable (Unix-like systems)
         if (process.platform !== 'win32') {
             fs.chmodSync(YT_DLP_PATH, 0o755);
         }
 
-        console.log(`✅ yt-dlp downloaded to ${YT_DLP_PATH}`);
+        console.log(`[yt-dlp-manager] ✅ yt-dlp downloaded successfully`);
         return YT_DLP_PATH;
     } catch (error) {
-        console.error(`❌ Failed to download yt-dlp: ${error.message}`);
-        console.error('Manual installation required:');
-        console.error('  Windows: choco install yt-dlp');
-        console.error('  macOS: brew install yt-dlp');
-        console.error('  Linux: sudo apt install yt-dlp');
+        console.error(`[yt-dlp-manager] ❌ Download failed: ${error.message}`);
+        console.error(`[yt-dlp-manager] YT_DLP_DIR: ${YT_DLP_DIR}`);
+        console.error(`[yt-dlp-manager] YT_DLP_PATH: ${YT_DLP_PATH}`);
+        console.error(`[yt-dlp-manager] Platform: ${process.platform}`);
         throw error;
     }
 }
