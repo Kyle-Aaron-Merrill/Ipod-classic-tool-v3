@@ -6,7 +6,7 @@
 
 A powerful desktop tool for automatically fetching and organizing music metadata for your iPod Classic. Supports multiple music services including YouTube Music, Spotify, Apple Music, Amazon Music, Tidal, and AI-powered metadata generation.
 
-![iPod Classic Tool](build/logo.png)
+![iPod Classic Tool](logo.png)
 
 ---
 
