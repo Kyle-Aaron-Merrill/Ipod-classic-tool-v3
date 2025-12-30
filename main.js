@@ -37,27 +37,44 @@ const DOWNLOADER_PATH = path.join(PROJECT_ROOT, 'scripts', 'downloader.js');
 
 // --- Setup Logging ---
 function writeLog(message) {
-    const timestamp = new Date().toISOString();
-    const logMessage = `[${timestamp}] ${message}\n`;
-    
     try {
+        // Ensure directory exists
+        if (!fs.existsSync(APP_DATA_DIR)) {
+            fs.mkdirSync(APP_DATA_DIR, { recursive: true });
+        }
+        
+        const timestamp = new Date().toISOString();
+        const logMessage = `[${timestamp}] ${message}\n`;
         fs.appendFileSync(LOG_PATH, logMessage);
-        console.log(message); // Also log to console
     } catch (err) {
+        // Silently fail if logging fails
         console.error(`Failed to write log: ${err.message}`);
     }
 }
 
-// Redirect console.log and console.error to file
+// Redirect console.log and console.error to file (but not before app ready)
+let loggingEnabled = false;
 const originalLog = console.log;
 const originalError = console.error;
 console.log = (...args) => {
     originalLog(...args);
-    writeLog(`[LOG] ${args.join(' ')}`);
+    if (loggingEnabled) {
+        try {
+            writeLog(`[LOG] ${args.join(' ')}`);
+        } catch (err) {
+            // Ignore logging errors
+        }
+    }
 };
 console.error = (...args) => {
     originalError(...args);
-    writeLog(`[ERROR] ${args.join(' ')}`);
+    if (loggingEnabled) {
+        try {
+            writeLog(`[ERROR] ${args.join(' ')}`);
+        } catch (err) {
+            // Ignore logging errors
+        }
+    }
 };
 const CONVERTER_PATH = path.join(PROJECT_ROOT, 'scripts', 'link-convert.js');
 const DLP_PATH = path.join(PROJECT_ROOT, 'scripts', 'get_yt_dlp_link.js');
@@ -729,6 +746,9 @@ app.on('activate', () => {
 });
 
 app.on('ready', () => {
+    loggingEnabled = true; // Enable file logging now
+    console.log("=== iPod Classic Tool Started ===");
+    
     if (fs.existsSync(CONFIG_PATH)) { loadConfig(); createWindow(); } 
     else createSetupWindow();
     if (!fs.existsSync(COOKIES_PATH)) launchCookieExporter();
