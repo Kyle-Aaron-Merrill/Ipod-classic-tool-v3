@@ -22,7 +22,8 @@ async function downloadImageAsBuffer(imageUrl) {
         const response = await fetch(imageUrl, { timeout: 10000 });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
-        const buffer = await response.buffer();
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
         
         // Optimize image size (max 500x500)
         const optimized = await sharp(buffer)
@@ -47,62 +48,49 @@ async function embedMetadataIntoTrack(filePath, metadata) {
             return false;
         }
 
-        // Prepare ID3 tags
+        // Log what metadata we're working with
+        console.log(`[Embedder] Embedding: ${metadata.track_title || 'Unknown'}`);
+        console.log(`[Embedder]   Genre: ${metadata.genre}`);
+        console.log(`[Embedder]   Mood: ${metadata.mood}`);
+        console.log(`[Embedder]   Composer: ${metadata.composer}`);
+
+        // Windows Explorer is picky: stick to ID3v2.3 core aliases it understands
+        const year = (metadata.release_date || '').toString().slice(0, 4);
+        const trackTotal = metadata.track_total ? `/${metadata.track_total}` : '';
         const tags = {
             title: metadata.track_title || 'Unknown',
             artist: metadata.artist || 'Unknown Artist',
             album: metadata.album || 'Unknown Album',
-            albumArtist: metadata.album_artist || metadata.artist,
-            date: metadata.release_date || '',
+            performerInfo: metadata.album_artist || metadata.artist, // album artist (TPE2)
+            year,
             genre: metadata.genre || '',
-            TRCK: metadata.track_number || 0,
-            TPOS: metadata.disc_number || '1/1',
-            TCON: metadata.genre || '',
-            TPUB: metadata.publisher || '',
-            TCOM: metadata.composer || '',
-            TCOP: metadata.copyright_text || '',
-            TENC: metadata.encoded_by || 'iPod Classic Tool v3',
-            TOPE: metadata.contributing_artist || '',
-            TMCL: metadata.conductors ? `conductor/${metadata.conductors}` : '',
-            TXXX: [
-                {
-                    description: 'mood',
-                    value: metadata.mood || ''
-                },
-                {
-                    description: 'grouping',
-                    value: metadata.grouping || ''
-                },
-                {
-                    description: 'parental_rating_reason',
-                    value: metadata.parental_rating_reason || ''
-                },
-                {
-                    description: 'source_url',
-                    value: metadata.source_url || ''
-                },
-                {
-                    description: 'isrc',
-                    value: metadata.isrc || ''
-                }
+            trackNumber: metadata.track_number ? `${metadata.track_number}${trackTotal}` : undefined,
+            partOfSet: metadata.disc_number || '1/1',
+            publisher: metadata.publisher || '',
+            composer: metadata.composer || '',
+            copyright: metadata.copyright_text || '',
+            encodedBy: metadata.encoded_by || 'iPod Classic Tool v3',
+            originalArtist: metadata.contributing_artist || '',
+            conductor: metadata.conductors ? `conductor/${metadata.conductors}` : '',
+            mood: metadata.mood || '',
+            contentGroup: metadata.grouping || '',
+            isrc: metadata.isrc || '',
+            userDefinedText: [
+                { description: 'source_url', value: metadata.source_url || '' }
             ],
-            COMM: {
-                description: 'Comment',
+            comment: {
+                language: 'eng',
                 text: metadata.comments || ''
-            },
-            TRAT: metadata.rating ? String(metadata.rating) : ''
+            }
         };
 
         // Add cover art if available
         if (metadata.cover_url) {
             const imageBuffer = await downloadImageAsBuffer(metadata.cover_url);
             if (imageBuffer) {
-                tags.APIC = {
+                tags.image = {
                     mime: 'image/jpeg',
-                    type: {
-                        id: 3, // Front cover
-                        name: 'front cover'
-                    },
+                    type: { id: 3 }, // front cover
                     description: 'Cover Art',
                     imageBuffer: imageBuffer
                 };
@@ -110,14 +98,24 @@ async function embedMetadataIntoTrack(filePath, metadata) {
         }
 
         // Write tags to file
-        const success = NodeID3.write(tags, filePath);
-        if (success) {
-            console.log(`[Embedder] ✓ Embedded metadata into: ${path.basename(filePath)}`);
-            return true;
-        } else {
-            console.warn(`[Embedder] Failed to write tags to: ${filePath}`);
-            return false;
-        }
+        return new Promise((resolve, reject) => {
+            NodeID3.write(tags, filePath, (err) => {
+                if (err) {
+                    console.error(`[Embedder] Error writing tags: ${err.message}`);
+                    resolve(false);
+                } else {
+                    console.log(`[Embedder] ✓ Embedded metadata into: ${path.basename(filePath)}`);
+                    // Quick sanity check so we know what was actually written
+                    const readBack = NodeID3.read(filePath, { noRaw: true });
+                    const missingCore = ['title', 'artist', 'album', 'trackNumber', 'year']
+                        .filter((field) => !readBack?.[field]);
+                    if (missingCore.length) {
+                        console.warn(`[Embedder] ⚠️ Missing after write (${path.basename(filePath)}): ${missingCore.join(', ')}`);
+                    }
+                    resolve(true);
+                }
+            });
+        });
     } catch (err) {
         console.error(`[Embedder] Error embedding metadata: ${err.message}`);
         return false;
@@ -163,6 +161,7 @@ async function embedMetadataFromManifest(manifestPath) {
                         album_artist: manifestData.Album_Artist || manifestData.Primary_Artist,
                         release_date: manifestData.Release_Date,
                         track_number: track.number,
+                        track_total: tracks.length,
                         disc_number: manifestData.disc_number || '1/1',
                         genre: manifestData.genre,
                         publisher: manifestData.publisher,
@@ -174,8 +173,6 @@ async function embedMetadataFromManifest(manifestPath) {
                         grouping: manifestData.group_description,
                         contributing_artist: track.contributing_artist || (manifestData.contributing_artist && manifestData.contributing_artist.join(', ')),
                         conductors: manifestData.conductors && manifestData.conductors[0],
-                        parental_rating_reason: manifestData.parental_rating_reason,
-                        rating: manifestData.rating,
                         cover_url: manifestData.Cover_Art_URL,
                         source_url: manifestData.Source_URL,
                         isrc: track.isrc || (manifestData.ISRC_Available ? track.isrc : null)
@@ -194,11 +191,9 @@ async function embedMetadataFromManifest(manifestPath) {
         }
 
         console.log(`[Embedder] ✅ Complete: ${embedded} embedded, ${failed} failed`);
-        process.exit(0);
 
     } catch (err) {
         console.error(`[Embedder] Fatal error: ${err.message}`);
-        process.exit(1);
     }
 }
 
@@ -207,9 +202,9 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
     const manifestPath = process.argv[2];
     if (!manifestPath) {
         console.error('Usage: node embed_from_manifest.js <manifest_path>');
-        process.exit(1);
+    } else {
+        embedMetadataFromManifest(manifestPath);
     }
-    embedMetadataFromManifest(manifestPath);
 }
 
 export { embedMetadataFromManifest, embedMetadataIntoTrack };

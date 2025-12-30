@@ -301,7 +301,19 @@ export async function getTrackUrl(playlistUrl, trackName) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const [,, url, media, album, track] = process.argv;
     get_yt_dlp_link(url, media, album, track).then(link => {
-        if (link) process.stdout.write(link.trim());
+        // Support both CLI and IPC communication
+        if (process.send) {
+            process.send({ type: 'output', data: link ? link.trim() : '' });
+        } else {
+            if (link) process.stdout.write(link.trim());
+        }
         process.exit(0);
+    }).catch(err => {
+        if (process.send) {
+            process.send({ type: 'error', data: err.message });
+        } else {
+            process.stderr.write(err.message);
+        }
+        process.exit(1);
     });
 }

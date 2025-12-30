@@ -183,18 +183,36 @@ let inputUrl = args[0];
 let manifestPath = args[1];
 
 async function main() {
-    let currentLink = inputUrl;
+    try {
+        let currentLink = inputUrl;
 
-    // --- NEW LOGIC: DETECT AND RESOLVE BROWSE/REDIRECT LINKS ---
-    // Common patterns for browse/redirect links in music services
-    if (currentLink.includes('browse') || currentLink.includes('googleusercontent') || currentLink.includes('redirect')) {
-        inputUrl = await resolveBrowseLink(currentLink);
+        // --- NEW LOGIC: DETECT AND RESOLVE BROWSE/REDIRECT LINKS ---
+        // Common patterns for browse/redirect links in music services
+        if (currentLink.includes('browse') || currentLink.includes('googleusercontent') || currentLink.includes('redirect')) {
+            inputUrl = await resolveBrowseLink(currentLink);
+        }
+        const results = await processMusicLink(inputUrl);
+        
+        // IMPORTANT: Print the final JSON on a single line at the end 
+        // so the Electron main process can parse it easily.
+        const output = JSON.stringify(results);
+        
+        // Support both CLI and IPC communication
+        if (process.send) {
+            process.send({ type: 'output', data: output });
+        } else {
+            console.log(output);
+        }
+        process.exit(0);
+    } catch (err) {
+        const errorMsg = err.message || String(err);
+        if (process.send) {
+            process.send({ type: 'error', data: errorMsg });
+        } else {
+            console.error(errorMsg);
+        }
+        process.exit(1);
     }
-    const results = await processMusicLink(inputUrl);
-    
-    // IMPORTANT: Print the final JSON on a single line at the end 
-    // so the Electron main process can parse it easily.
-    console.log(JSON.stringify(results));
 }
 
 main();

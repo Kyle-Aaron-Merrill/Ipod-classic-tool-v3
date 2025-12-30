@@ -30,50 +30,111 @@ async function fetchMetadataWithGPT(manifestPath, apiKey) {
         // Initialize OpenAI client
         const client = new OpenAI({ apiKey });
 
+        // Prepare album-level metadata
+        let albumMetadata = {};
+
+        // Query GPT once for the album as a whole
+        try {
+            const albumPrompt = `Extract comprehensive music metadata for the following album:
+Album Title: ${manifestData.Album_Title || 'Unknown'}
+Artist: ${manifestData.Primary_Artist || 'Unknown'}
+Release Date: ${manifestData.Release_Date || 'Unknown'}
+Track Count: ${manifestData.Track_Count || 0}
+
+Provide ONLY a valid JSON object (no markdown, no extra text):
+{
+  "genre": "primary genre",
+  "mood": "overall mood/vibe",
+  "publisher": "publisher/label name",
+  "composers": ["composer1", "composer2"],
+  "conductors": ["conductor1"],
+  "group_description": "band/group description",
+  "rating": 0,
+  "comments": "album notes",
+  "contributing_artist": ["artist1", "artist2"],
+  "parental_rating_reason": "reason if applicable"
+}`;
+
+            console.log(`[GPT] Fetching album-level metadata...`);
+            const albumMessage = await client.chat.completions.create({
+                model: 'gpt-3.5-turbo',
+                max_tokens: 1024,
+                messages: [
+                    {
+                        role: 'user',
+                        content: albumPrompt
+                    }
+                ]
+            });
+
+            const albumResponse = albumMessage.choices[0].message;
+            if (albumResponse.content) {
+                try {
+                    albumMetadata = JSON.parse(albumResponse.content);
+                    console.log(`[GPT] ✓ Album metadata: ${albumMetadata.genre} - ${albumMetadata.mood}`);
+                } catch (e) {
+                    console.warn(`[GPT] Could not parse album metadata response: ${e.message}`);
+                }
+            }
+        } catch (err) {
+            console.warn(`[GPT] Error fetching album metadata: ${err.message}`);
+        }
+
+        // Process individual tracks
         for (const track of tracks) {
             try {
-                const prompt = `Extract music metadata for the following track:
+                const trackPrompt = `Extract music metadata for this specific track:
 Album: ${manifestData.Album_Title || 'Unknown'}
 Artist: ${manifestData.Primary_Artist || 'Unknown'}
 Track: ${track.title || 'Unknown'}
+Duration: ${track.duration || 'Unknown'}
 
-Provide in JSON format:
+Provide ONLY a valid JSON object (no markdown, no extra text) with track-specific fields only:
 {
-  "genre": "genre here",
-  "mood": "mood here",
-  "energy_level": "high/medium/low",
-  "description": "brief description"
+  "isrc": "ISRC code if available"
 }`;
 
-                const message = await client.messages.create({
-                    model: 'claude-3-5-sonnet-20241022',
-                    max_tokens: 1024,
+                const message = await client.chat.completions.create({
+                    model: 'gpt-3.5-turbo',
+                    max_tokens: 256,
                     messages: [
                         {
                             role: 'user',
-                            content: prompt
+                            content: trackPrompt
                         }
                     ]
                 });
 
-                const response = message.content[0];
-                if (response.type === 'text') {
+                const response = message.choices[0].message;
+                if (response.content) {
                     try {
-                        const metadata = JSON.parse(response.text);
-                        console.log(`[GPT] ✓ ${track.title}: ${metadata.genre} (${metadata.mood})`);
+                        const metadata = JSON.parse(response.content);
+                        console.log(`[GPT] ✓ ${track.title}`);
                         
-                        // Update track with GPT metadata
-                        track.genre = metadata.genre || track.genre;
-                        track.mood = metadata.mood || '';
-                        track.energy_level = metadata.energy_level || '';
-                    } catch {
-                        console.warn(`[GPT] Could not parse response for ${track.title}`);
+                        // Update track with ONLY track-specific metadata
+                        track.isrc = metadata.isrc || '';
+                    } catch (e) {
+                        console.warn(`[GPT] Could not parse track response for ${track.title}: ${e.message}`);
                     }
                 }
             } catch (err) {
                 console.warn(`[GPT] Error processing track "${track.title}": ${err.message}`);
                 // Continue to next track on error
             }
+        }
+
+        // Merge album-level metadata into manifest root using template field names
+        if (Object.keys(albumMetadata).length > 0) {
+            manifestData.genre = albumMetadata.genre || '';
+            manifestData.mood = albumMetadata.mood || '';
+            manifestData.contributing_artist = albumMetadata.contributing_artist || [];
+            manifestData.rating = albumMetadata.rating || 0;
+            manifestData.comments = albumMetadata.comments || '';
+            manifestData.publisher = albumMetadata.publisher || '';
+            manifestData.composers = albumMetadata.composers || [];
+            manifestData.conductors = albumMetadata.conductors || [];
+            manifestData.group_description = albumMetadata.group_description || '';
+            manifestData.parental_rating_reason = albumMetadata.parental_rating_reason || '';
         }
 
         // Save updated manifest

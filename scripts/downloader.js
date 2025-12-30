@@ -9,6 +9,45 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const DOWNLOAD_DIR = manifest.music_download_path;
 const COOKIES_PATH = path.join(path.dirname(manifestPath), 'cookies.txt');
 
+// === VALIDATION ON STARTUP ===
+function validateEnvironment() {
+    const errors = [];
+    
+    // Check if DOWNLOAD_DIR exists and is writable
+    if (!DOWNLOAD_DIR) {
+        errors.push('DOWNLOAD_DIR not set in manifest');
+    } else if (!fs.existsSync(DOWNLOAD_DIR)) {
+        console.warn(`[Downloader] DOWNLOAD_DIR does not exist: ${DOWNLOAD_DIR}. Creating...`);
+        try {
+            fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+            console.log(`[Downloader] Created DOWNLOAD_DIR: ${DOWNLOAD_DIR}`);
+        } catch (err) {
+            errors.push(`Failed to create DOWNLOAD_DIR: ${err.message}`);
+        }
+    }
+    
+    // Check if COOKIES_PATH exists
+    if (!fs.existsSync(COOKIES_PATH)) {
+        console.warn(`[Downloader] WARNING: Cookies file not found at ${COOKIES_PATH}`);
+        console.warn(`[Downloader] Protected content may fail to download. Cookie refresh will be triggered if needed.`);
+    } else {
+        console.log(`[Downloader] ✅ Cookies file found: ${COOKIES_PATH}`);
+    }
+    
+    if (errors.length > 0) {
+        const errorMsg = errors.join('; ');
+        console.error(`[Downloader] VALIDATION FAILED: ${errorMsg}`);
+        if (process.send) {
+            process.send({ type: 'ERROR', message: `Environment validation failed: ${errorMsg}` });
+        }
+        throw new Error(errorMsg);
+    }
+    console.log('[Downloader] ✅ Environment validation passed');
+}
+
+// Run validation before processing
+validateEnvironment();
+
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function updateYtdlp() {
@@ -120,8 +159,23 @@ async function processAlbum() {
             track.local_file_path = outputPath; 
             fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
         } catch (e) {
+            const errorDetails = e.stderr || e.message || String(e);
+            console.error(`[Downloader] ❌ FAILED to download track: "${track.title}"`);
+            console.error(`[Downloader] Error: ${errorDetails}`);
+            console.error(`[Downloader] Output path was: ${outputPath}`);
+            
             track.status = "failed";
+            track.error_message = errorDetails; // Store error for UI display
             fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+            
+            // Send error update to main process
+            if (process.send) {
+                process.send({ 
+                    type: 'TRACK_ERROR', 
+                    track: track.title,
+                    message: errorDetails 
+                });
+            }
         }
     }
 }

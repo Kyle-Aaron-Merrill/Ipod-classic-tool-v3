@@ -56,23 +56,33 @@ function writeLog(message) {
 let loggingEnabled = false;
 const originalLog = console.log;
 const originalError = console.error;
+
+// Flag to prevent recursive logging
+let isLogging = false;
+
 console.log = (...args) => {
     originalLog(...args);
-    if (loggingEnabled) {
+    if (loggingEnabled && !isLogging) {
+        isLogging = true;
         try {
             writeLog(`[LOG] ${args.join(' ')}`);
         } catch (err) {
-            // Ignore logging errors
+            originalError(`Failed to write log: ${err.message}`);
+        } finally {
+            isLogging = false;
         }
     }
 };
 console.error = (...args) => {
     originalError(...args);
-    if (loggingEnabled) {
+    if (loggingEnabled && !isLogging) {
+        isLogging = true;
         try {
             writeLog(`[ERROR] ${args.join(' ')}`);
         } catch (err) {
-            // Ignore logging errors
+            // Silently fail to prevent double-error recursion
+        } finally {
+            isLogging = false;
         }
     }
 };
@@ -232,11 +242,26 @@ async function normalizeMeta(manifestPath){
 
 async function extractGptMeta(manifestPath) {
     try {
-        const apiKey = process.env.OPENAI_API_KEY;
+        // Try to get API key from config (nested structure), environment, or skip
+        let apiKey = process.env.OPENAI_API_KEY;
+        
+        if (!apiKey && appConfig) {
+            // Check for nested structure: openai_credentials.api_key
+            if (appConfig.openai_credentials && appConfig.openai_credentials.api_key) {
+                apiKey = appConfig.openai_credentials.api_key;
+            }
+            // Also check for flat structure: apiKey
+            else if (appConfig.apiKey) {
+                apiKey = appConfig.apiKey;
+            }
+        }
+        
         if (!apiKey) {
-            console.log('[GPT] OpenAI API key not set. Skipping GPT metadata extraction.');
+            console.log('[GPT] OpenAI API key not configured in settings. Skipping GPT metadata extraction.');
             return;
         }
+        
+        console.log('[GPT] Using configured OpenAI API key for metadata extraction.');
         await fetchMetadataWithGPT(manifestPath, apiKey);
     } catch (err) {
         console.warn('[GPT] Error during metadata extraction:', err.message);
@@ -246,69 +271,112 @@ async function extractGptMeta(manifestPath) {
 
 async function extractYoutubeDlpLinkFromQuery(artistUrl, media, album, track){
     return new Promise((resolve, reject) => {
-        const cmd = `node ${escapePath(DLP_PATH)} ${escapePath(artistUrl)} ${escapePath(media)} ${escapePath(album)} ${escapePath(track)}`;
-        exec(cmd, (err, so, se) => {
-            try{
-                if (se) console.log(`[Fetcher Logs]:\n${se}`);
-                    if (err) return reject(err);
+        try {
+            const child = fork(DLP_PATH, [artistUrl, media, album, track]);
+            let output = '';
+            let errorOutput = '';
 
-                    const finalYoutubeLink = so.trim();
-                    if (finalYoutubeLink && finalYoutubeLink.startsWith('https')) {
-                        console.log(`[Main] SUCCESS! Received Link: ${finalYoutubeLink}`);
-                        if (mainWindow) {
-                            mainWindow.webContents.send('download-progress', {
-                                status: 'Link Found',
-                                url: finalYoutubeLink
-                            });
+            child.on('message', (msg) => {
+                if (msg.type === 'output') {
+                    output += msg.data;
+                }
+            });
+
+            child.stderr?.on('data', (data) => {
+                errorOutput += data.toString();
+            });
+
+            child.on('close', (code) => {
+                if (code === 0 && output) {
+                    try {
+                        const finalYoutubeLink = output.trim();
+                        if (finalYoutubeLink && finalYoutubeLink.startsWith('https')) {
+                            console.log(`[Main] SUCCESS! Received Link: ${finalYoutubeLink}`);
+                            if (mainWindow) {
+                                mainWindow.webContents.send('download-progress', {
+                                    status: 'Link Found',
+                                    url: finalYoutubeLink
+                                });
+                            }
+                            resolve(finalYoutubeLink);
+                        } else {
+                            console.error(`[Link-Convert] ⚠️ No link found for this item. Skipping.`);
+                            resolve(null);
                         }
-                        resolve(finalYoutubeLink);
-                    } else {
-                        // DO NOT REJECT. Resolve with null so the loop can continue.
-                        console.error(`[Link-Convert] ⚠️ No link found for this item. Skipping.`);
-                        resolve(null); 
+                    } catch (parseError) {
+                        reject(parseError);
                     }
-            }catch (parseError) {
-                reject(parseError);
-            } 
-        });
+                } else {
+                    if (errorOutput) console.log(`[Fetcher Logs]:\n${errorOutput}`);
+                    console.error(`[Link-Convert] ⚠️ No link found for this item. Skipping.`);
+                    resolve(null);
+                }
+            });
+
+            child.on('error', (err) => {
+                console.error(`[Main] Fork error: ${err.message}`);
+                reject(err);
+            });
+        } catch (err) {
+            console.error(`[Main] Error spawning DLP fetcher: ${err.message}`);
+            reject(err);
+        }
     });
 }
 
 async function extractQueryFromLinkConversion(manifestPath, url) {
     return new Promise((resolve, reject) => {
-        const cmd = `node ${escapePath(CONVERTER_PATH)} ${escapePath(url)} ${escapePath(manifestPath)}`;
-        exec(cmd, (error, stdout, stderr) => {
-            if (error) {
-                console.error(`[Exec Error]: ${error}`);
-                return reject(error);
-            }
-            
-            if (stderr) {
-                console.warn(`[Converter Warning]: ${stderr}`);
-            }
+        try {
+            const child = fork(CONVERTER_PATH, [url, manifestPath]);
+            let output = '';
+            let errorOutput = '';
 
-            if (error) return reject(error);
+            child.on('message', (msg) => {
+                if (msg.type === 'output') {
+                    output += msg.data;
+                }
+            });
 
-            try {
-                const lines = stdout.trim().split('\n');
-                const linkResults = JSON.parse(lines[lines.length - 1]);
+            child.stderr?.on('data', (data) => {
+                errorOutput += data.toString();
+            });
 
-                const artistUrl = linkResults.find(obj => obj.ChannelUrl)?.ChannelUrl;
-                const media = cleanMetadataString(linkResults.find(obj => obj.Media)?.Media);
-                const album = cleanMetadataString(linkResults.find(obj => obj.Album)?.Album);
-                const track = cleanMetadataString(linkResults.find(obj => obj.Track)?.Track);
-                const results = {
-                    artistUrl: artistUrl,
-                    media:media,
-                    album:album,
-                    track:track,
-                };
-                resolve(results);
-            }
-            catch (parseError) {
-                reject(parseError);
-            } 
-        });
+            child.on('close', (code) => {
+                try {
+                    if (code === 0 && output) {
+                        const rawResults = JSON.parse(output.trim());
+                        
+                        // Convert array format to query object format
+                        const queryObj = {};
+                        for (const item of rawResults) {
+                            if (item.Captured_URL) queryObj.capturedUrl = item.Captured_URL;
+                            if (item.Service) queryObj.service = item.Service;
+                            if (item.Media) queryObj.media = item.Media;
+                            if (item.Artist) queryObj.artistUrl = item.Artist;
+                            if (item.Album) queryObj.album = item.Album;
+                            if (item.Track) queryObj.track = item.Track;
+                            if (item.ChannelUrl) queryObj.channelUrl = item.ChannelUrl;
+                        }
+                        
+                        console.log(`[Main] Received query: ${JSON.stringify(queryObj)}`);
+                        resolve(queryObj);
+                    } else {
+                        if (errorOutput) console.log(`[Link-Converter Logs]:\n${errorOutput}`);
+                        resolve(null);
+                    }
+                } catch (parseError) {
+                    reject(parseError);
+                }
+            });
+
+            child.on('error', (err) => {
+                console.error(`[Main] Fork error: ${err.message}`);
+                reject(err);
+            });
+        } catch (err) {
+            console.error(`[Main] Error spawning converter: ${err.message}`);
+            reject(err);
+        }
     });
 }
 
@@ -372,16 +440,16 @@ async function processLinks() {
             const query = await extractQueryFromLinkConversion(manifestPath, linkObj.url);
             uiLog(`[2/7] 🏷️  Metadata: ${query.artistUrl} - ${query.album} - ${query.track}`);
 
-            // Check if artistUrl is already a direct YouTube URL (not a search URL)
+            // Check if channelUrl is already a direct YouTube URL (not a search URL)
             let yt_dlp_link = null;
-            if (query.artistUrl && query.artistUrl.includes('youtube.com') && 
-                (query.artistUrl.includes('/watch?v=') || query.artistUrl.includes('/playlist?list='))) {
+            if (query.channelUrl && query.channelUrl.includes('youtube.com') && 
+                (query.channelUrl.includes('/watch?v=') || query.channelUrl.includes('/playlist?list='))) {
                 // It's already a direct YouTube link, use it directly
                 console.log(`[Main] Direct YouTube URL detected, skipping channel search`);
-                yt_dlp_link = query.artistUrl;
+                yt_dlp_link = query.channelUrl;
             } else {
                 // Need to search for the artist channel and find the release
-                yt_dlp_link = await extractYoutubeDlpLinkFromQuery(query.artistUrl, query.media, query.album, query.track);
+                yt_dlp_link = await extractYoutubeDlpLinkFromQuery(query.channelUrl || query.artistUrl, query.media, query.album, query.track);
             }
             
             if (!yt_dlp_link) {

@@ -63,8 +63,7 @@
       "target": [
         "nsis",
         "portable"
-      ],
-      "icon": "build/logo.png"
+      ]
     },
     "nsis": {
       "oneClick": false,
