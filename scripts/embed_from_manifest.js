@@ -52,18 +52,18 @@ async function embedMetadataIntoTrack(filePath, metadata) {
             title: metadata.track_title || 'Unknown',
             artist: metadata.artist || 'Unknown Artist',
             album: metadata.album || 'Unknown Album',
+            albumArtist: metadata.album_artist || metadata.artist,
             date: metadata.release_date || '',
             genre: metadata.genre || '',
             TRCK: metadata.track_number || 0,
+            TPOS: metadata.disc_number || '1/1',
             TCON: metadata.genre || '',
             TPUB: metadata.publisher || '',
             TCOM: metadata.composer || '',
             TCOP: metadata.copyright_text || '',
             TENC: metadata.encoded_by || 'iPod Classic Tool v3',
-            COMM: {
-                description: 'Comment',
-                text: metadata.comments || ''
-            },
+            TOPE: metadata.contributing_artist || '',
+            TMCL: metadata.conductors ? `conductor/${metadata.conductors}` : '',
             TXXX: [
                 {
                     description: 'mood',
@@ -72,8 +72,25 @@ async function embedMetadataIntoTrack(filePath, metadata) {
                 {
                     description: 'grouping',
                     value: metadata.grouping || ''
+                },
+                {
+                    description: 'parental_rating_reason',
+                    value: metadata.parental_rating_reason || ''
+                },
+                {
+                    description: 'source_url',
+                    value: metadata.source_url || ''
+                },
+                {
+                    description: 'isrc',
+                    value: metadata.isrc || ''
                 }
-            ]
+            ],
+            COMM: {
+                description: 'Comment',
+                text: metadata.comments || ''
+            },
+            TRAT: metadata.rating ? String(metadata.rating) : ''
         };
 
         // Add cover art if available
@@ -143,17 +160,25 @@ async function embedMetadataFromManifest(manifestPath) {
                         track_title: track.title,
                         artist: track.artist || manifestData.Primary_Artist,
                         album: manifestData.Album_Title,
+                        album_artist: manifestData.Album_Artist || manifestData.Primary_Artist,
                         release_date: manifestData.Release_Date,
                         track_number: track.number,
+                        disc_number: manifestData.disc_number || '1/1',
                         genre: manifestData.genre,
                         publisher: manifestData.publisher,
-                        composer: track.composer || manifestData.Primary_Artist,
+                        composer: track.composer || (manifestData.composers && manifestData.composers[0]) || manifestData.Primary_Artist,
                         copyright_text: manifestData.Copyright_Statement,
-                        encoded_by: 'iPod Classic Tool v3',
-                        comments: manifestData.comments,
+                        encoded_by: manifestData.encoded_by || 'iPod Classic Tool v3',
+                        comments: manifestData.comments || manifestData.Note_on_Missing_Data,
                         mood: manifestData.mood,
                         grouping: manifestData.group_description,
-                        cover_url: manifestData.Cover_Art_URL
+                        contributing_artist: track.contributing_artist || (manifestData.contributing_artist && manifestData.contributing_artist.join(', ')),
+                        conductors: manifestData.conductors && manifestData.conductors[0],
+                        parental_rating_reason: manifestData.parental_rating_reason,
+                        rating: manifestData.rating,
+                        cover_url: manifestData.Cover_Art_URL,
+                        source_url: manifestData.Source_URL,
+                        isrc: track.isrc || (manifestData.ISRC_Available ? track.isrc : null)
                     };
 
                     const success = await embedMetadataIntoTrack(filePath, metadata);
