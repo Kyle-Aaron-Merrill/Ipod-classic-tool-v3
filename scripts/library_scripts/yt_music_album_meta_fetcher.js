@@ -17,25 +17,47 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 async function captureYoutubeMusicData(targetUrl) {
     console.log(`\nSTART: Capturing Youtube_Music Music Page for: ${targetUrl}`);
 
-    const browser = await puppeteer.launch({ 
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] 
-    }); 
-    const page = await browser.newPage();
+    let browser = null;
     let pageContent = null;
 
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Youtube_MusicWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-    await page.setViewport({ width: 1280, height: 720 });
-
     try {
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+        // Launch browser with timeout protection
+        browser = await Promise.race([
+            puppeteer.launch({ 
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Puppeteer launch timeout (15s)')), 15000)
+            )
+        ]);
+
+        const page = await browser.newPage();
+
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Youtube_MusicWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+        await page.setViewport({ width: 1280, height: 720 });
+
+        // Navigate with timeout
+        await Promise.race([
+            page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Page navigation timeout (65s)')), 65000)
+            )
+        ]);
+
         pageContent = await page.content(); 
-        //fs.writeFileSync(HTML_FILE, pageContent);
-        console.log(`✅ Captured and saved HTML to **${HTML_FILE}**`);
+        console.log(`✅ Captured HTML from YouTube Music`);
     } catch (error) {
-        console.error('❌ Navigation failed:', error.message);
+        console.error(`❌ YouTube Music scraping failed: ${error.message}`);
+        console.error('❌ This is common on Windows - returning null to skip this item');
     } finally {
-        await browser.close();
+        if (browser) {
+            try {
+                await browser.close();
+            } catch (closeErr) {
+                console.warn(`Browser close warning: ${closeErr.message}`);
+            }
+        }
     }
     return pageContent;
 }
@@ -140,10 +162,19 @@ export async function getYoutubeMusicAlbumMeta(adamId, manifestPath) {
     if (!adamId) throw new Error("Missing Adam ID.");
 
     const targetUrl = `https://music.youtube.com/playlist?list=${adamId}`;
-    const htmlContent = await captureYoutubeMusicData(targetUrl);
+    
+    try {
+        const htmlContent = await captureYoutubeMusicData(targetUrl);
 
-    if (htmlContent) {
+        if (!htmlContent) {
+            console.error('[YouTube Music] Failed to capture page - likely Puppeteer crash');
+            throw new Error('YouTube Music metadata extraction failed - Puppeteer could not load page');
+        }
+
         extractYoutubeMusicMetadata(htmlContent, targetUrl, manifestPath);
+    } catch (err) {
+        console.error(`[YouTube Music] Error in getYoutubeMusicAlbumMeta: ${err.message}`);
+        throw err; // Re-throw so caller knows it failed
     }
 }
 

@@ -48,23 +48,43 @@ async function captureYoutubeMusicData(targetUrl) {
     let fetchUrl = targetUrl.replace('music.youtube.com', 'www.youtube.com');
     console.log(`   → Converted to: ${fetchUrl}`);
 
-    const browser = await puppeteer.launch({ 
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] 
-    }); 
-    const page = await browser.newPage();
+    let browser = null;
     let pageContent = null;
 
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    await page.setViewport({ width: 1280, height: 720 });
-
     try {
-        await page.goto(fetchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+        // Launch browser with timeout protection
+        browser = await Promise.race([
+            puppeteer.launch({ 
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Puppeteer launch timeout (15s)')), 15000)
+            )
+        ]);
+
+        const page = await browser.newPage();
+
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setViewport({ width: 1280, height: 720 });
+
+        // Navigate with timeout
+        await Promise.race([
+            page.goto(fetchUrl, { waitUntil: 'networkidle2', timeout: 60000 }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Page navigation timeout (65s)')), 65000)
+            )
+        ]);
         
         // Wait for the player to load - YouTube Music has specific selectors
-        await page.waitForFunction(() => {
-            return document.querySelector('[role="main"]') || document.querySelector('.music-content');
-        }, { timeout: 30000 }).catch(() => {});
+        await Promise.race([
+            page.waitForFunction(() => {
+                return document.querySelector('[role="main"]') || document.querySelector('.music-content');
+            }, { timeout: 30000 }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Player load timeout')), 35000)
+            )
+        ]).catch(() => console.log('Player selector timeout - continuing anyway'));
         
         // Wait for hero image to load (album art)
         await page.waitForSelector('img.yt-video-attribute-view-model__hero-image', { timeout: 10000 }).catch(() => {});
@@ -261,9 +281,16 @@ async function captureYoutubeMusicData(targetUrl) {
         fs.writeFileSync(HTML_FILE, pageContent, 'utf8');
         console.log(`✅ Captured and saved HTML to **${HTML_FILE}**`);
     } catch (error) {
-        console.error('❌ Navigation failed:', error.message);
+        console.error(`❌ YouTube Music scraping failed: ${error.message}`);
+        console.error('❌ This is common on Windows - returning null to skip this item');
     } finally {
-        await browser.close();
+        if (browser) {
+            try {
+                await browser.close();
+            } catch (closeErr) {
+                console.warn(`Browser close warning: ${closeErr.message}`);
+            }
+        }
     }
     return pageContent;
 }
@@ -388,29 +415,19 @@ export async function getYoutubeMusicTrackMeta(adamId, manifestPath) {
 
     // Use the standard YouTube watch URL (YouTube Music pages miss some metadata)
     const targetUrl = `https://www.youtube.com/watch?v=${adamId}`;
-    const htmlContent = await captureYoutubeMusicData(targetUrl);
+    
+    try {
+        const htmlContent = await captureYoutubeMusicData(targetUrl);
 
-    if (htmlContent) {
+        if (!htmlContent) {
+            console.error('[YouTube Music] Failed to capture page - likely Puppeteer crash');
+            throw new Error('YouTube Music metadata extraction failed - Puppeteer could not load page');
+        }
+
         extractYoutubeMusicMetadata(htmlContent, targetUrl, manifestPath);
-    } else {
-        console.warn(`[YT Music] Failed to capture metadata from ${targetUrl}`);
-        // Create a minimal metadata object when page capture fails
-        const minimalMetadata = {
-            "Source_URL": targetUrl,
-            'Track_ID': adamId,
-            'Primary_Artist': 'Unknown Artist',
-            'Album_Title': 'Unknown Album',
-            "Release_Date": 'N/A',
-            "Cover_Art_URL": 'N/A',
-            "Tracks": [
-                {
-                    "number": 1,
-                    "title": 'Unknown Track',
-                    "duration": 'N/A'
-                }
-            ]
-        };
-        exportToJson(minimalMetadata, manifestPath);
+    } catch (err) {
+        console.error(`[YouTube Music] Error in getYoutubeMusicTrackMeta: ${err.message}`);
+        throw err; // Re-throw so caller knows it failed
     }
 }
 
