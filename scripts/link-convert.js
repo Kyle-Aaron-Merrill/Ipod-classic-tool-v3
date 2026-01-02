@@ -30,51 +30,80 @@ import { getTidalTrackMetadata } from './library_scripts/tidal_track_meta_fetche
  */
 async function resolveBrowseLink(initialUrl) {
     console.log(`[Link-Convert] Resolving browse link: ${initialUrl}`);
-    const browser = await puppeteer.launch({ 
-        headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            // This forces the browser to look like a standard desktop Chrome
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-        ]
-    });
+    let browser = null;
     
     try {
+        browser = await Promise.race([
+            puppeteer.launch({ 
+                headless: true,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    // This forces the browser to look like a standard desktop Chrome
+                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+                ]
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Puppeteer launch timeout')), 15000)
+            )
+        ]);
+        
         const page = await browser.newPage();
         
-        // 1. Navigate and wait for initial network settlement
-        await page.goto(initialUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        // 1. Navigate and wait for initial network settlement with timeout
+        try {
+            await Promise.race([
+                page.goto(initialUrl, { waitUntil: 'networkidle2', timeout: 30000 }),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Navigation timeout')), 35000)
+                )
+            ]);
+        } catch (navErr) {
+            console.warn(`[Link-Convert] Navigation failed: ${navErr.message}, returning original URL`);
+            return initialUrl;
+        }
 
         // 2. Wait for either the URL to contain 'list=' OR for the internal data to load
         console.error(`[Link-Convert] Waiting for resolution...`);
-        const resolvedPlaylistId = await page.waitForFunction(() => {
-            // Check A: Has the URL updated itself?
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.has('list')) return urlParams.get('list');
+        let resolvedPlaylistId = null;
+        
+        try {
+            resolvedPlaylistId = await Promise.race([
+                page.waitForFunction(() => {
+                    // Check A: Has the URL updated itself?
+                    const urlParams = new URLSearchParams(window.location.search);
+                    if (urlParams.has('list')) return urlParams.get('list');
 
-            // Check B: Is the ID available in the canonical link?
-            const canonical = document.querySelector('link[rel="canonical"]')?.href;
-            if (canonical && canonical.includes('list=')) {
-                return new URLSearchParams(new URL(canonical).search);
-            }
-
-            // Check C: Is the ID hidden in the page's data object? (Most reliable for SPAs)
-            if (window.ytInitialData) {
-                const findId = (obj) => {
-                    for (let key in obj) {
-                        if (key === 'playlistId' && typeof obj[key] === 'string') return obj[key];
-                        if (obj[key] && typeof obj[key] === 'object') {
-                            const found = findId(obj[key]);
-                            if (found) return found;
-                        }
+                    // Check B: Is the ID available in the canonical link?
+                    const canonical = document.querySelector('link[rel="canonical"]')?.href;
+                    if (canonical && canonical.includes('list=')) {
+                        return new URLSearchParams(new URL(canonical).search).get('list');
                     }
-                    return null;
-                };
-                return findId(window.ytInitialData);
-            }
-            return false;
-        }, { polling: 'mutation', timeout: 15000 }).then(handle => handle.jsonValue());
+
+                    // Check C: Is the ID hidden in the page's data object? (Most reliable for SPAs)
+                    if (window.ytInitialData) {
+                        const findId = (obj) => {
+                            for (let key in obj) {
+                                if (key === 'playlistId' && typeof obj[key] === 'string') return obj[key];
+                                if (obj[key] && typeof obj[key] === 'object') {
+                                    const found = findId(obj[key]);
+                                    if (found) return found;
+                                }
+                            }
+                            return null;
+                        };
+                        return findId(window.ytInitialData);
+                    }
+                    return false;
+                }, { polling: 'mutation', timeout: 15000 }).then(handle => handle.jsonValue()),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Wait for resolution timeout')), 20000)
+                )
+            ]);
+        } catch (waitErr) {
+            console.warn(`[Link-Convert] Could not resolve browse link: ${waitErr.message}, returning original`);
+            return initialUrl;
+        }
 
         if (resolvedPlaylistId) {
             const finalUrl = `https://music.youtube.com/playlist?list=${resolvedPlaylistId}`;
@@ -84,10 +113,16 @@ async function resolveBrowseLink(initialUrl) {
 
         return initialUrl; // Return original if all detection methods fail
     } catch (e) {
-        console.error(`[Link-Convert] ❌ Resolution timed out or failed: ${e.message}`);
+        console.error(`[Link-Convert] ❌ Resolution failed: ${e.message}`);
         return initialUrl;
     } finally {
-        await browser.close();
+        if (browser) {
+            try {
+                await browser.close();
+            } catch (closeErr) {
+                console.warn(`[Link-Convert] Browser close error: ${closeErr.message}`);
+            }
+        }
     }
 }
 
@@ -95,86 +130,95 @@ async function resolveBrowseLink(initialUrl) {
  * Main function to process the URL and return the structured link results.
  */
 async function processMusicLink(url) {
-    let link_results = [];
-    let TRACK = null;
-    let directYoutubeUrl = null;
-    let processUrl = url; // URL to use for metadata extraction
+    try {
+        let link_results = [];
+        let TRACK = null;
+        let directYoutubeUrl = null;
+        let processUrl = url; // URL to use for metadata extraction
 
-    // 1. Core Logic Flow
-    const DOMAIN = await getDomainService(url);
-    const MEDIA = await getMediaType(url, DOMAIN);
-    
-    // SPECIAL CASE: Detect and convert YouTube Music URLs to direct YouTube URLs
-    // BUT still extract metadata from the YouTube Music page
-    if (DOMAIN === 'youtube music') {
-        const urlObj = new URL(url);
+        // 1. Core Logic Flow
+        const DOMAIN = await getDomainService(url);
+        const MEDIA = await getMediaType(url, DOMAIN);
         
-        // Case 1: Direct track URL (watch?v=...)
-        if (MEDIA === 'track' && urlObj.searchParams.has('v')) {
-            const trackId = urlObj.searchParams.get('v');
-            directYoutubeUrl = `https://www.youtube.com/watch?v=${trackId}`;
-            console.log(`[Link-Convert] YouTube Music track detected: ${directYoutubeUrl}`);
-        }
-        // Case 2: Playlist/Album URL (playlist?list=...)
-        else if ((MEDIA === 'album' || urlObj.pathname.includes('/playlist')) && urlObj.searchParams.has('list')) {
-            const listId = urlObj.searchParams.get('list');
-            directYoutubeUrl = `https://www.youtube.com/playlist?list=${listId}`;
-            processUrl = url; // Use the playlist URL for extraction
-            console.log(`[Link-Convert] YouTube Music album/playlist detected: ${directYoutubeUrl}`);
-        }
-        // Case 3: Browse URL that needs resolution
-        else if (urlObj.pathname.includes('/browse/')) {
-            console.log(`[Link-Convert] YouTube Music browse URL detected, resolving...`);
-            const resolvedUrl = await resolveBrowseLink(url);
-            const resolvedObj = new URL(resolvedUrl);
-            if (resolvedObj.searchParams.has('list')) {
-                const listId = resolvedObj.searchParams.get('list');
-                directYoutubeUrl = `https://www.youtube.com/playlist?list=${listId}`;
-                processUrl = resolvedUrl; // Use the RESOLVED URL for metadata extraction
-                console.log(`[Link-Convert] Resolved and converted: ${directYoutubeUrl}`);
+        // SPECIAL CASE: Detect and convert YouTube Music URLs to direct YouTube URLs
+        // BUT still extract metadata from the YouTube Music page
+        if (DOMAIN === 'youtube music') {
+            const urlObj = new URL(url);
+            
+            // Case 1: Direct track URL (watch?v=...)
+            if (MEDIA === 'track' && urlObj.searchParams.has('v')) {
+                const trackId = urlObj.searchParams.get('v');
+                directYoutubeUrl = `https://www.youtube.com/watch?v=${trackId}`;
+                console.log(`[Link-Convert] YouTube Music track detected: ${directYoutubeUrl}`);
             }
+            // Case 2: Playlist/Album URL (playlist?list=...)
+            else if ((MEDIA === 'album' || urlObj.pathname.includes('/playlist')) && urlObj.searchParams.has('list')) {
+                const listId = urlObj.searchParams.get('list');
+                directYoutubeUrl = `https://www.youtube.com/playlist?list=${listId}`;
+                processUrl = url; // Use the playlist URL for extraction
+                console.log(`[Link-Convert] YouTube Music album/playlist detected: ${directYoutubeUrl}`);
+            }
+            // Case 3: Browse URL that needs resolution
+            else if (urlObj.pathname.includes('/browse/')) {
+                console.log(`[Link-Convert] YouTube Music browse URL detected, resolving...`);
+                try {
+                    const resolvedUrl = await resolveBrowseLink(url);
+                    const resolvedObj = new URL(resolvedUrl);
+                    if (resolvedObj.searchParams.has('list')) {
+                        const listId = resolvedObj.searchParams.get('list');
+                        directYoutubeUrl = `https://www.youtube.com/playlist?list=${listId}`;
+                        processUrl = resolvedUrl; // Use the RESOLVED URL for metadata extraction
+                        console.log(`[Link-Convert] Resolved and converted: ${directYoutubeUrl}`);
+                    }
+                } catch (resolveErr) {
+                    console.warn(`[Link-Convert] Browse resolution failed: ${resolveErr.message}, continuing with original URL`);
+                }
+            }
+            
+            // Don't return early - still extract metadata from YouTube Music
+            // We'll use directYoutubeUrl at the end instead of the search URL
         }
         
-        // Don't return early - still extract metadata from YouTube Music
-        // We'll use directYoutubeUrl at the end instead of the search URL
+        // getArtist handles the fetching and file writing (use processUrl, not original url)
+        const ARTIST = await getArtist(processUrl, DOMAIN, MEDIA);
+        const ALBUM = await getAlbum(DOMAIN);
+        
+        if (MEDIA === 'track') {
+            TRACK = await getTrack(DOMAIN);
+        }
+
+        // 2. Handle the 'Full Album' logic you requested
+        if (TRACK === null && MEDIA === 'album') {
+            console.log("No track because media type is album");
+            TRACK = "Full Album";
+        }
+
+        // Use direct YouTube URL if available, otherwise use search URL
+        const channelUrl = directYoutubeUrl || getChannelSearchUrl(ARTIST);
+        
+        // 3. Build the link_results array
+        link_results.push(
+            { Captured_URL: inputUrl },
+            { Service: DOMAIN },
+            { Media: MEDIA },
+            { Artist: ARTIST },
+            { Album: ALBUM },
+            { Track: TRACK },
+            { ChannelUrl: channelUrl }
+        );
+
+        // 4. Final Logs
+        console.log(`\n--- Final Results for ${DOMAIN} ---`);
+        console.log(`Artist: ${ARTIST}`);
+        console.log(`Album: ${ALBUM}`);
+        console.log(`Track: ${TRACK}`);
+
+        // RETURN the array
+        return link_results;
+    } catch (err) {
+        console.error(`[Link-Convert] Error in processMusicLink: ${err.message}`);
+        throw err;
     }
-    
-    // getArtist handles the fetching and file writing (use processUrl, not original url)
-    const ARTIST = await getArtist(processUrl, DOMAIN, MEDIA);
-    const ALBUM = await getAlbum(DOMAIN);
-    
-    if (MEDIA === 'track') {
-        TRACK = await getTrack(DOMAIN);
-    }
-
-    // 2. Handle the 'Full Album' logic you requested
-    if (TRACK === null && MEDIA === 'album') {
-        console.log("No track because media type is album");
-        TRACK = "Full Album";
-    }
-
-    // Use direct YouTube URL if available, otherwise use search URL
-    const channelUrl = directYoutubeUrl || getChannelSearchUrl(ARTIST);
-    
-    // 3. Build the link_results array
-    link_results.push(
-        { Captured_URL: inputUrl },
-        { Service: DOMAIN },
-        { Media: MEDIA },
-        { Artist: ARTIST },
-        { Album: ALBUM },
-        { Track: TRACK },
-        { ChannelUrl: channelUrl }
-    );
-
-    // 4. Final Logs
-    console.log(`\n--- Final Results for ${DOMAIN} ---`);
-    console.log(`Artist: ${ARTIST}`);
-    console.log(`Album: ${ALBUM}`);
-    console.log(`Track: ${TRACK}`);
-
-    // RETURN the array
-    return link_results;
 }
 
 // Capture the URL from the command line argument
@@ -189,9 +233,21 @@ async function main() {
         // --- NEW LOGIC: DETECT AND RESOLVE BROWSE/REDIRECT LINKS ---
         // Common patterns for browse/redirect links in music services
         if (currentLink.includes('browse') || currentLink.includes('googleusercontent') || currentLink.includes('redirect')) {
-            inputUrl = await resolveBrowseLink(currentLink);
+            try {
+                inputUrl = await resolveBrowseLink(currentLink);
+            } catch (resolveErr) {
+                console.error(`[Link-Convert] Browse link resolution failed: ${resolveErr.message}`);
+                // Continue with original URL
+            }
         }
-        const results = await processMusicLink(inputUrl);
+        
+        let results;
+        try {
+            results = await processMusicLink(inputUrl);
+        } catch (processErr) {
+            console.error(`[Link-Convert] Processing failed: ${processErr.message}`);
+            throw new Error(`Failed to process music link: ${processErr.message}`);
+        }
         
         // IMPORTANT: Print the final JSON on a single line at the end 
         // so the Electron main process can parse it easily.
@@ -206,6 +262,7 @@ async function main() {
         process.exit(0);
     } catch (err) {
         const errorMsg = err.message || String(err);
+        console.error(`[Link-Convert] Fatal error: ${errorMsg}`);
         if (process.send) {
             process.send({ type: 'error', data: errorMsg });
         } else {

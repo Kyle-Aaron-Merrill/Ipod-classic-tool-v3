@@ -13,6 +13,19 @@ import { embedMetadataFromManifest } from './scripts/embed_from_manifest.js';
 import { fetchMetadataWithGPT } from './scripts/fetch_gpt_meta.js';
 import { getTrackUrl } from './scripts/get_track_url.js';
 
+// --- CRITICAL: Global Error Handlers to Prevent Process Crashes ---
+// Catch unhandled promise rejections (prevents terminal reset on crash)
+process.on('unhandledRejection', (reason, promise) => {
+    console.error(`[CRITICAL] Unhandled Promise Rejection:`, reason);
+    console.error(`[CRITICAL] Promise:`, promise);
+});
+
+// Catch uncaught exceptions (prevents terminal reset on crash)
+process.on('uncaughtException', (error) => {
+    console.error(`[CRITICAL] Uncaught Exception:`, error);
+    console.error(`[CRITICAL] Stack:`, error.stack);
+});
+
 // --- Global Variables ---
 let setupWindow = null;
 let mainWindow = null;
@@ -326,10 +339,27 @@ async function extractYoutubeDlpLinkFromQuery(artistUrl, media, album, track){
 
 async function extractQueryFromLinkConversion(manifestPath, url) {
     return new Promise((resolve, reject) => {
+        let processFinished = false;
+        let timeoutHandle = null;
+
         try {
             const child = fork(CONVERTER_PATH, [url, manifestPath]);
             let output = '';
             let errorOutput = '';
+
+            // Add 60 second timeout for the converter process
+            timeoutHandle = setTimeout(() => {
+                if (!processFinished) {
+                    processFinished = true;
+                    console.error(`[Main] Link converter timeout after 60s`);
+                    try {
+                        child.kill();
+                    } catch (e) {
+                        // ignore
+                    }
+                    reject(new Error("Link converter timed out - likely Puppeteer crash on Windows"));
+                }
+            }, 60000);
 
             child.on('message', (msg) => {
                 if (msg.type === 'output') {
@@ -342,6 +372,10 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
             });
 
             child.on('close', (code) => {
+                if (processFinished) return; // Already timed out
+                processFinished = true;
+                if (timeoutHandle) clearTimeout(timeoutHandle);
+
                 try {
                     if (code === 0 && output) {
                         const rawResults = JSON.parse(output.trim());
@@ -362,7 +396,10 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
                         resolve(queryObj);
                     } else {
                         if (errorOutput) console.log(`[Link-Converter Logs]:\n${errorOutput}`);
-                        resolve(null);
+                        if (code !== 0) {
+                            console.error(`[Main] Link converter exited with code ${code}`);
+                        }
+                        reject(new Error(`Link converter failed: exit code ${code}`));
                     }
                 } catch (parseError) {
                     reject(parseError);
@@ -370,10 +407,14 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
             });
 
             child.on('error', (err) => {
+                if (processFinished) return;
+                processFinished = true;
+                if (timeoutHandle) clearTimeout(timeoutHandle);
                 console.error(`[Main] Fork error: ${err.message}`);
                 reject(err);
             });
         } catch (err) {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
             console.error(`[Main] Error spawning converter: ${err.message}`);
             reject(err);
         }
@@ -437,7 +478,22 @@ async function processLinks() {
             const manifestPath = await getMetaAndCreateManifest(linkObj);
             uiLog(`[1/7] 📁 Manifest: ${manifestPath}`);
 
-            const query = await extractQueryFromLinkConversion(manifestPath, linkObj.url);
+            let query;
+            try {
+                query = await extractQueryFromLinkConversion(manifestPath, linkObj.url);
+            } catch (err) {
+                uiLog(`[!] ⚠️  Link converter failed: ${err.message}`);
+                uiLog(`[!] ⚠️  This often happens on Windows with Puppeteer issues. Skipping.`);
+                if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
+                return;
+            }
+
+            if (!query || !query.artistUrl) {
+                uiLog(`[!] ⚠️  SKIPPING: Could not extract metadata from URL.`);
+                if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
+                return;
+            }
+
             uiLog(`[2/7] 🏷️  Metadata: ${query.artistUrl} - ${query.album} - ${query.track}`);
 
             // Check if channelUrl is already a direct YouTube URL (not a search URL)
@@ -482,16 +538,29 @@ async function processLinks() {
     const runners = new Array(CONCURRENCY).fill(null).map(async () => {
         while (true) {
             let item;
-            // take next item atomically
-            if (index < totalItems) item = videoLinkArray[index++];
-            else break;
-            // update batch progress
-            if (mainWindow) mainWindow.webContents.send('progress-update', { type: 'batch', current: index, total: totalItems });
-            await processSingle(item);
+            try {
+                // take next item atomically
+                if (index < totalItems) item = videoLinkArray[index++];
+                else break;
+                // update batch progress
+                if (mainWindow) mainWindow.webContents.send('progress-update', { type: 'batch', current: index, total: totalItems });
+                await processSingle(item);
+            } catch (runnerErr) {
+                // Catch ANY error in runner to prevent process crash
+                console.error(`[Main] Runner error (caught to prevent crash): ${runnerErr.message}`);
+                uiLog(`[!] ⚠️  Critical error in processing: ${runnerErr.message}`);
+            }
         }
     });
 
-    await Promise.all(runners);
+    try {
+        await Promise.all(runners);
+    } catch (allErr) {
+        // Final safety net - catch errors from Promise.all itself
+        console.error(`[Main] Critical error in Promise.all: ${allErr.message}`);
+        uiLog(`[!] ⚠️  Critical error during batch processing: ${allErr.message}`);
+    }
+    
     console.log(`[Main] All ${totalItems} items processed.`);
 
     // Clear in-memory queue and notify renderer to clear UI state
@@ -814,11 +883,37 @@ app.on('activate', () => {
 });
 
 app.on('ready', () => {
-    loggingEnabled = true; // Enable file logging now
-    console.log("=== iPod Classic Tool Started ===");
-    
-    if (fs.existsSync(CONFIG_PATH)) { loadConfig(); createWindow(); } 
-    else createSetupWindow();
-    if (!fs.existsSync(COOKIES_PATH)) launchCookieExporter();
+    try {
+        loggingEnabled = true; // Enable file logging now
+        console.log("=== iPod Classic Tool Started ===");
+        
+        if (fs.existsSync(CONFIG_PATH)) { 
+            try {
+                loadConfig(); 
+            } catch (cfgErr) {
+                console.error(`[Main] Error loading config: ${cfgErr.message}`);
+            }
+            createWindow(); 
+        } else {
+            createSetupWindow();
+        }
+        
+        if (!fs.existsSync(COOKIES_PATH)) {
+            try {
+                launchCookieExporter();
+            } catch (cookieErr) {
+                console.warn(`[Main] Error launching cookie exporter: ${cookieErr.message}`);
+                // Continue anyway - cookies will be handled later
+            }
+        }
+    } catch (readyErr) {
+        console.error(`[Main] Critical error during app ready: ${readyErr.message}`);
+        // Try to show at least a basic window
+        try {
+            if (!mainWindow) createWindow();
+        } catch (windowErr) {
+            console.error(`[Main] Failed to create window: ${windowErr.message}`);
+        }
+    }
 });
 
