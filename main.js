@@ -131,7 +131,8 @@ function launchCookieExporter() {
     return new Promise((resolve, reject) => {
         try {
             const exporterPath = path.join(PROJECT_ROOT, 'scripts', 'cookie_exporter.cjs');
-            console.log(`[MAIN] Launching cookie exporter from: ${exporterPath}`);
+            console.log(`[MAIN] ▶️ Launching cookie exporter from: ${exporterPath}`);
+            console.log(`[MAIN] Cookie path: ${COOKIES_PATH}`);
             
             // Use fork instead of exec to avoid path issues in packaged apps
             // Fork directly with Node instead of trying to call 'npx electron'
@@ -139,30 +140,56 @@ function launchCookieExporter() {
                 stdio: ['ignore', 'pipe', 'pipe', 'ipc']
             });
             
+            let stdoutData = '';
+            let stderrData = '';
+            
             child.stdout?.on('data', (data) => {
-                console.log(`[COOKIE-EXPORTER] ${data.toString().trim()}`);
+                const msg = data.toString().trim();
+                stdoutData += msg;
+                console.log(`[COOKIE-EXPORTER] ${msg}`);
             });
             
             child.stderr?.on('data', (data) => {
-                console.error(`[COOKIE-EXPORTER] ${data.toString().trim()}`);
+                const msg = data.toString().trim();
+                stderrData += msg;
+                console.error(`[COOKIE-EXPORTER-ERR] ${msg}`);
             });
             
             child.on('close', (code) => {
                 if (code === 0) {
-                    console.log(`[MAIN] Cookies refreshed successfully.`);
+                    console.log(`[MAIN] ✅ Cookies refreshed successfully (exit code 0)`);
                     resolve();
                 } else {
-                    console.error(`[MAIN] Cookie exporter exited with code ${code}`);
+                    console.error(`[MAIN] ❌ Cookie exporter exited with code ${code}`);
+                    console.error(`[MAIN] Last output: ${stdoutData || stderrData || 'no output'}`);
                     reject(new Error(`Cookie exporter failed with code ${code}`));
                 }
             });
             
             child.on('error', (err) => {
-                console.error(`[MAIN] Cookie Export Error:`, err.message);
+                console.error(`[MAIN] ❌ Cookie Export Error: ${err.message}`);
+                console.error(`[MAIN] Stack: ${err.stack}`);
                 reject(err);
             });
+            
+            // 30 second timeout
+            const timeout = setTimeout(() => {
+                console.error(`[MAIN] ❌ Cookie exporter timeout after 30s`);
+                try {
+                    child.kill();
+                } catch (e) {
+                    // ignore
+                }
+                reject(new Error('Cookie exporter timeout'));
+            }, 30000);
+            
+            child.on('exit', () => {
+                clearTimeout(timeout);
+            });
+            
         } catch (err) {
-            console.error(`[MAIN] Error launching cookie exporter:`, err.message);
+            console.error(`[MAIN] ❌ Error launching cookie exporter: ${err.message}`);
+            console.error(`[MAIN] Stack: ${err.stack}`);
             reject(err);
         }
     });
@@ -368,11 +395,17 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
         try {
             // Handle asar paths: if we're in an asar archive, we need to use a different path
             let converterPath = CONVERTER_PATH;
+            console.log(`[LinkConverter] 🔍 Checking if running from asar...`);
             if (process.mainModule && process.mainModule.filename.includes('.asar')) {
                 // We're running from asar - use app.getAppPath() instead
                 converterPath = path.join(app.getAppPath(), 'scripts', 'link-convert.js');
-                console.log(`[Main] Using asar-aware path for link converter: ${converterPath}`);
+                console.log(`[LinkConverter] ✅ Detected asar environment, using: ${converterPath}`);
+            } else {
+                console.log(`[LinkConverter] ℹ️ Running from source, using: ${converterPath}`);
             }
+            
+            console.log(`[LinkConverter] ▶️ Starting link converter for: ${url}`);
+            console.log(`[LinkConverter] Manifest: ${manifestPath}`);
             
             const child = fork(converterPath, [url, manifestPath]);
             let output = '';
@@ -382,7 +415,7 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
             timeoutHandle = setTimeout(() => {
                 if (!processFinished) {
                     processFinished = true;
-                    console.error(`[Main] Link converter timeout after 60s`);
+                    console.error(`[LinkConverter] ❌ Timeout after 60s - killing process`);
                     try {
                         child.kill();
                     } catch (e) {
@@ -395,11 +428,19 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
             child.on('message', (msg) => {
                 if (msg.type === 'output') {
                     output += msg.data;
+                    console.log(`[LinkConverter] Message: ${msg.data}`);
                 }
             });
 
+            child.stdout?.on('data', (data) => {
+                const msg = data.toString().trim();
+                console.log(`[LinkConverter-stdout] ${msg}`);
+            });
+
             child.stderr?.on('data', (data) => {
-                errorOutput += data.toString();
+                const msg = data.toString().trim();
+                errorOutput += msg;
+                console.error(`[LinkConverter-stderr] ${msg}`);
             });
 
             child.on('close', (code) => {
@@ -407,8 +448,15 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
                 processFinished = true;
                 if (timeoutHandle) clearTimeout(timeoutHandle);
 
+                console.log(`[LinkConverter] Process exited with code: ${code}`);
+                console.log(`[LinkConverter] Output length: ${output.length} bytes`);
+                if (errorOutput) {
+                    console.log(`[LinkConverter] Error output: ${errorOutput}`);
+                }
+
                 try {
                     if (code === 0 && output) {
+                        console.log(`[LinkConverter] ✅ Parsing JSON output...`);
                         const rawResults = JSON.parse(output.trim());
                         
                         // Convert array format to query object format
@@ -423,16 +471,17 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
                             if (item.ChannelUrl) queryObj.channelUrl = item.ChannelUrl;
                         }
                         
-                        console.log(`[Main] Received query: ${JSON.stringify(queryObj)}`);
+                        console.log(`[LinkConverter] ✅ Successfully extracted: ${JSON.stringify(queryObj)}`);
                         resolve(queryObj);
                     } else {
-                        if (errorOutput) console.log(`[Link-Converter Logs]:\n${errorOutput}`);
+                        if (errorOutput) console.log(`[LinkConverter] Error logs:\n${errorOutput}`);
                         if (code !== 0) {
-                            console.error(`[Main] Link converter exited with code ${code}`);
+                            console.error(`[LinkConverter] ❌ Exit code ${code}`);
                         }
                         reject(new Error(`Link converter failed: exit code ${code}`));
                     }
                 } catch (parseError) {
+                    console.error(`[LinkConverter] ❌ JSON parse error: ${parseError.message}`);
                     reject(parseError);
                 }
             });
@@ -441,12 +490,13 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
                 if (processFinished) return;
                 processFinished = true;
                 if (timeoutHandle) clearTimeout(timeoutHandle);
-                console.error(`[Main] Fork error: ${err.message}`);
+                console.error(`[LinkConverter] ❌ Fork error: ${err.message}`);
                 reject(err);
             });
         } catch (err) {
             if (timeoutHandle) clearTimeout(timeoutHandle);
-            console.error(`[Main] Error spawning converter: ${err.message}`);
+            console.error(`[LinkConverter] ❌ Error spawning converter: ${err.message}`);
+            console.error(`[LinkConverter] Stack: ${err.stack}`);
             reject(err);
         }
     });
@@ -500,19 +550,28 @@ async function processLinks() {
     };
 
     async function processSingle(linkObj) {
+        const jobId = crypto.randomUUID().substring(0, 8);
+        console.log(`\n[Pipeline-${jobId}] ▶️ Starting new pipeline...`);
+        console.log(`[Pipeline-${jobId}] Input URL: ${linkObj.url}`);
+        
         uiLog(`\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`);
         uiLog(`┃ 🚀 STARTING PIPELINE`);
         uiLog(`┃ URL: ${linkObj.url}`);
         uiLog(`┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`);
 
         try {
+            console.log(`[Pipeline-${jobId}] [Step 1/7] Getting metadata and creating manifest...`);
             const manifestPath = await getMetaAndCreateManifest(linkObj);
+            console.log(`[Pipeline-${jobId}] [Step 1/7] ✅ Manifest created: ${manifestPath}`);
             uiLog(`[1/7] 📁 Manifest: ${manifestPath}`);
 
             let query;
             try {
+                console.log(`[Pipeline-${jobId}] [Step 2/7] Extracting query from link conversion...`);
                 query = await extractQueryFromLinkConversion(manifestPath, linkObj.url);
+                console.log(`[Pipeline-${jobId}] [Step 2/7] ✅ Query extracted:`, query);
             } catch (err) {
+                console.error(`[Pipeline-${jobId}] [Step 2/7] ❌ Link converter error: ${err.message}`);
                 uiLog(`[!] ⚠️  Link converter failed: ${err.message}`);
                 uiLog(`[!] ⚠️  This often happens on Windows with Puppeteer issues. Skipping.`);
                 if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
@@ -520,6 +579,8 @@ async function processLinks() {
             }
 
             if (!query || !query.artistUrl) {
+                console.error(`[Pipeline-${jobId}] [Step 2/7] ❌ Query is invalid or missing artistUrl`);
+                console.error(`[Pipeline-${jobId}] Query object:`, query);
                 uiLog(`[!] ⚠️  SKIPPING: Could not extract metadata from URL.`);
                 if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
                 return;
@@ -532,33 +593,49 @@ async function processLinks() {
             if (query.channelUrl && query.channelUrl.includes('youtube.com') && 
                 (query.channelUrl.includes('/watch?v=') || query.channelUrl.includes('/playlist?list='))) {
                 // It's already a direct YouTube link, use it directly
-                console.log(`[Main] Direct YouTube URL detected, skipping channel search`);
+                console.log(`[Pipeline-${jobId}] [Step 3/7] Direct YouTube URL detected, skipping channel search`);
                 yt_dlp_link = query.channelUrl;
             } else {
                 // Need to search for the artist channel and find the release
+                console.log(`[Pipeline-${jobId}] [Step 3/7] Extracting YouTube DLP link from query...`);
                 yt_dlp_link = await extractYoutubeDlpLinkFromQuery(query.channelUrl || query.artistUrl, query.media, query.album, query.track);
+                console.log(`[Pipeline-${jobId}] [Step 3/7] ✅ Got yt_dlp_link: ${yt_dlp_link}`);
             }
             
             if (!yt_dlp_link) {
+                console.error(`[Pipeline-${jobId}] [Step 3/7] ❌ No YouTube link found`);
                 uiLog(`[!] ⚠️  SKIPPING: No matching YouTube release found.`);
                 if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
                 return;
             }
 
             uiLog(`[3/7] 🔗 YouTube Link: ${yt_dlp_link}`);
+            
+            console.log(`[Pipeline-${jobId}] [Step 4/7] Extracting GPT metadata...`);
             await extractGptMeta(manifestPath);
+            console.log(`[Pipeline-${jobId}] [Step 4/7] ✅ GPT enrichment complete`);
             uiLog(`[4/7] 🤖 GPT Enrichment: Complete`);
+            
+            console.log(`[Pipeline-${jobId}] [Step 5/7] Normalizing metadata...`);
             await normalizeMeta(manifestPath);
+            console.log(`[Pipeline-${jobId}] [Step 5/7] ✅ Normalization complete`);
             uiLog(`[5/7] 🛠️  Normalization: Complete`);
+            
+            console.log(`[Pipeline-${jobId}] [Step 6/7] Updating manifest...`);
             await updateManifest(manifestPath, yt_dlp_link);
+            console.log(`[Pipeline-${jobId}] [Step 6/7] ✅ Manifest updated`);
             uiLog(`[6/7] 💾 Final Manifest: Saved`);
 
+            console.log(`[Pipeline-${jobId}] [Step 7/7] Starting downloader...`);
             uiLog(`[→] ⬇️  Handoff: Starting Downloader...`);
             await download(manifestPath);
 
+            console.log(`[Pipeline-${jobId}] ✅ SUCCESS: Pipeline completed for "${query.album || query.track}"`);
             uiLog(`\n✅ SUCCESS: "${query.album || query.track }" has finished.`);
             deleteManifest(manifestPath);
         } catch (err) {
+            console.error(`[Pipeline-${jobId}] ❌ Pipeline error: ${err.message}`);
+            console.error(`[Pipeline-${jobId}] Stack: ${err.stack}`);
             uiLog(`\n❌ ERROR: ${err.message}`);
         } finally {
             uiLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
