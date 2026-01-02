@@ -49,34 +49,44 @@ function findObjectWithKey(obj, targetKey) {
 async function captureAmazonMusicData(targetUrl, apiUrl, manifestPath) {
     console.log(`\nSTART: Capturing Amazon Music API data for: ${targetUrl}`);
 
-    const browser = await puppeteer.launch({ 
-        headless: true, // Running invisibly
-        // Add common stability arguments for headless environments
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] 
-    }); 
-    const page = await browser.newPage();
+    let browser = null;
     let apiResponseData = null;
 
-    // FIX 1: Set a reliable User-Agent and Viewport to prevent headless detection
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-    await page.setViewport({ width: 1280, height: 720 });
-
     try {
+        // Launch browser with timeout protection
+        browser = await Promise.race([
+            puppeteer.launch({ 
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Puppeteer launch timeout (15s)')), 15000)
+            )
+        ]);
+
+        const page = await browser.newPage();
+
+        // FIX 1: Set a reliable User-Agent and Viewport to prevent headless detection
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+        await page.setViewport({ width: 1280, height: 720 });
+
         console.log(`Navigating to: ${targetUrl}`);
         
         // --- RELIABLE WAIT MECHANISM ---
         
-        // 2a. Start navigation. FIX 2: Use 'networkidle2'. 
-        // This waits until there are no more than 2 network connections for at least 500ms, 
-        // giving time for the page's XHR (API call) to initiate after page load.
-        const navigationPromise = page.goto(targetUrl, { 
-            waitUntil: 'networkidle2', 
-            timeout: 60000 // Keep the page navigation timeout high
-        });
+        // 2a. Start navigation with timeout protection
+        const navigationPromise = Promise.race([
+            page.goto(targetUrl, { 
+                waitUntil: 'networkidle2', 
+                timeout: 60000
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Navigation timeout (65s)')), 65000)
+            )
+        ]);
         
         // 2b. Wait for the specific API response we need
         const responsePromise = page.waitForResponse(response => {
-            // Check for the correct URL and method
             return response.url() === apiUrl && response.request().method() === 'POST';
         }, { timeout: 30000 }); 
         
@@ -88,12 +98,18 @@ async function captureAmazonMusicData(targetUrl, apiUrl, manifestPath) {
         apiResponseData = await apiResponse.json();
         
         console.log(`✅ Captured response from: ${apiUrl}`);
-
     } catch (error) {
-        console.error('❌ Navigation or API capture failed:', error.message);
+        console.error(`❌ Amazon Music scraping failed: ${error.message}`);
+        console.error('❌ This is common on Windows - returning null to skip this item');
     } finally {
-        await browser.close();
-        console.log('Browser closed.');
+        if (browser) {
+            try {
+                await browser.close();
+                console.log('Browser closed.');
+            } catch (closeErr) {
+                console.warn(`Browser close warning: ${closeErr.message}`);
+            }
+        }
     }
     
     // --- Build & Save Info Dictionary (Raw Data) ---

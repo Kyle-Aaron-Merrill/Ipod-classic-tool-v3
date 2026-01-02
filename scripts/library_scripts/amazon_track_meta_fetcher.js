@@ -50,23 +50,38 @@ function findObjectWithKey(obj, targetKey) {
 async function captureAmazonMusicData(targetUrl, apiUrl, manifestPath) {
     console.log(`\nSTART: Capturing Amazon Music API data for: ${targetUrl}`);
 
-    const browser = await puppeteer.launch({ 
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] 
-    }); 
-    const page = await browser.newPage();
+    let browser = null;
     let apiResponseData = null;
 
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-    await page.setViewport({ width: 1280, height: 720 });
-
     try {
+        // Launch browser with timeout protection
+        browser = await Promise.race([
+            puppeteer.launch({ 
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Puppeteer launch timeout (15s)')), 15000)
+            )
+        ]);
+
+        const page = await browser.newPage();
+
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+        await page.setViewport({ width: 1280, height: 720 });
+
         console.log(`Navigating to: ${targetUrl}`);
         
-        const navigationPromise = page.goto(targetUrl, { 
-            waitUntil: 'networkidle2', 
-            timeout: 60000 
-        });
+        // Navigation with timeout protection
+        const navigationPromise = Promise.race([
+            page.goto(targetUrl, { 
+                waitUntil: 'networkidle2', 
+                timeout: 60000 
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Navigation timeout (65s)')), 65000)
+            )
+        ]);
         
         const responsePromise = page.waitForResponse(response => {
             return response.url() === apiUrl && response.request().method() === 'POST';
@@ -80,10 +95,17 @@ async function captureAmazonMusicData(targetUrl, apiUrl, manifestPath) {
         console.log(`✅ Captured response from: ${apiUrl}`);
 
     } catch (error) {
-        console.error('❌ Navigation or API capture failed:', error.message);
+        console.error(`❌ Amazon Music scraping failed: ${error.message}`);
+        console.error('❌ This is common on Windows - returning null to skip this item');
     } finally {
-        await browser.close();
-        console.log('Browser closed.');
+        if (browser) {
+            try {
+                await browser.close();
+                console.log('Browser closed.');
+            } catch (closeErr) {
+                console.warn(`Browser close warning: ${closeErr.message}`);
+            }
+        }
     }
     
     // --- Build & Save Info Dictionary (Raw Data) ---

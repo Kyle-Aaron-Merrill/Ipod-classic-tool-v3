@@ -23,21 +23,32 @@ async function exportToJson(data, filename) {
 }
 
 async function fetch_meta(url, media, manifestPath) {
-    let browser;
+    let browser = null;
     let metadata = {}; // This is your 'info dict'
     
     try {
         console.debug('[extractSpotifyQuery] Launching Puppeteer for URL:', url);
         
-        browser = await puppeteer.launch({ 
-            headless: true, // Keeping headless = false for easier debugging
-            slowMo: 10 
-        });
+        // Launch browser with timeout protection
+        browser = await Promise.race([
+            puppeteer.launch({ 
+                headless: true,
+                slowMo: 10 
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Puppeteer launch timeout (15s)')), 15000)
+            )
+        ]);
         
         const page = await browser.newPage();
         
-        // Navigate to the URL and wait for the network to settle
-        await page.goto(url, { waitUntil: 'networkidle2' });
+        // Navigate with timeout
+        await Promise.race([
+            page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Page navigation timeout (65s)')), 65000)
+            )
+        ]);
 
         // --- CORE EXTRACTION LOGIC ---
         // We use page.evaluate() to run code inside the browser context
@@ -83,13 +94,17 @@ async function fetch_meta(url, media, manifestPath) {
         await exportToJson(metadata, manifestPath);
         
     } catch (err) {
-        console.error('[Spotify Extract Error]', err.stack || err);
-        // The process exited with code 1, so we should return an empty object or throw
+        console.error(`❌ Spotify track scraping failed: ${err.message}`);
+        console.error('❌ This is common on Windows with Puppeteer - returning empty object');
         return {};
     } finally {
         if (browser) {
-            await browser.close();
-            console.debug('[extractSpotifyQuery] Puppeteer browser closed');
+            try {
+                await browser.close();
+                console.debug('[extractSpotifyQuery] Puppeteer browser closed');
+            } catch (closeErr) {
+                console.warn(`Browser close warning: ${closeErr.message}`);
+            }
         }
     }
 }
