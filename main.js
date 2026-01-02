@@ -17,7 +17,7 @@ import { getTrackUrl } from './scripts/get_track_url.js';
 // Catch unhandled promise rejections (prevents terminal reset on crash)
 process.on('unhandledRejection', (reason, promise) => {
     console.error(`[CRITICAL] Unhandled Promise Rejection:`, reason);
-    console.error(`[CRITICAL] Promise:`, promise);
+    console.error(`[CRITICAL] Promise:`, reason);
 });
 
 // Catch uncaught exceptions (prevents terminal reset on crash)
@@ -129,19 +129,42 @@ function deleteManifest(manifestPath) {
 
 function launchCookieExporter() {
     return new Promise((resolve, reject) => {
-        const exporterPath = path.join(PROJECT_ROOT, 'scripts', 'cookie_exporter.cjs');
-        console.log(`[MAIN] Launching cookie exporter...`);
-        
-        const cmd = `npx electron ${escapePath(exporterPath)} "youtube" ${escapePath(COOKIES_PATH)}`;
-        exec(cmd, (err) => {
-            if (err) {
-                console.error(`[MAIN] Cookie Export Error:`, err);
+        try {
+            const exporterPath = path.join(PROJECT_ROOT, 'scripts', 'cookie_exporter.cjs');
+            console.log(`[MAIN] Launching cookie exporter from: ${exporterPath}`);
+            
+            // Use fork instead of exec to avoid path issues in packaged apps
+            // Fork directly with Node instead of trying to call 'npx electron'
+            const child = fork(exporterPath, ['youtube', COOKIES_PATH], {
+                stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+            });
+            
+            child.stdout?.on('data', (data) => {
+                console.log(`[COOKIE-EXPORTER] ${data.toString().trim()}`);
+            });
+            
+            child.stderr?.on('data', (data) => {
+                console.error(`[COOKIE-EXPORTER] ${data.toString().trim()}`);
+            });
+            
+            child.on('close', (code) => {
+                if (code === 0) {
+                    console.log(`[MAIN] Cookies refreshed successfully.`);
+                    resolve();
+                } else {
+                    console.error(`[MAIN] Cookie exporter exited with code ${code}`);
+                    reject(new Error(`Cookie exporter failed with code ${code}`));
+                }
+            });
+            
+            child.on('error', (err) => {
+                console.error(`[MAIN] Cookie Export Error:`, err.message);
                 reject(err);
-            } else {
-                console.log(`[MAIN] Cookies refreshed successfully.`);
-                resolve();
-            }
-        });
+            });
+        } catch (err) {
+            console.error(`[MAIN] Error launching cookie exporter:`, err.message);
+            reject(err);
+        }
     });
 }
 
@@ -343,7 +366,15 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
         let timeoutHandle = null;
 
         try {
-            const child = fork(CONVERTER_PATH, [url, manifestPath]);
+            // Handle asar paths: if we're in an asar archive, we need to use a different path
+            let converterPath = CONVERTER_PATH;
+            if (process.mainModule && process.mainModule.filename.includes('.asar')) {
+                // We're running from asar - use app.getAppPath() instead
+                converterPath = path.join(app.getAppPath(), 'scripts', 'link-convert.js');
+                console.log(`[Main] Using asar-aware path for link converter: ${converterPath}`);
+            }
+            
+            const child = fork(converterPath, [url, manifestPath]);
             let output = '';
             let errorOutput = '';
 
