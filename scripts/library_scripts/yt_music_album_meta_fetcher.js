@@ -13,65 +13,25 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 }
 
 /**
- * Auto-installs Chromium if missing
+ * Auto-installs Chromium using Puppeteer's built-in BrowserFetcher
+ * This works even when npm/npx are not in PATH
  */
 async function ensureChromiumInstalled() {
-    return new Promise((resolve) => {
-        console.log('[Chromium] Attempting to install Chromium for Puppeteer...');
-        console.log('[Chromium] This may take 2-5 minutes on first install.');
+    console.log('[Chromium] Downloading and installing Chromium via Puppeteer...');
+    console.log('[Chromium] This may take 2-5 minutes on first install.');
+    
+    try {
+        // Use Puppeteer's built-in BrowserFetcher - no external commands needed
+        const browserFetcher = puppeteer.createBrowserFetcher();
+        const revisionInfo = await browserFetcher.download('1314286');
         
-        let installProcess = null;
-        
-        // Try multiple ways to invoke npm/npx
-        const attempts = [
-            // Attempt 1: Direct npx (may work with PATH set correctly)
-            { cmd: 'npx', args: ['puppeteer', 'browsers', 'install', 'chrome'] },
-            // Attempt 2: npm exec (newer npm alternative to npx)
-            { cmd: 'npm', args: ['exec', 'puppeteer', 'browsers', 'install', 'chrome'] },
-        ];
-        
-        let currentAttempt = 0;
-        
-        function tryInstall() {
-            if (currentAttempt >= attempts.length) {
-                console.error(`[Chromium] ❌ All installation attempts failed`);
-                resolve(false);
-                return;
-            }
-            
-            const attempt = attempts[currentAttempt];
-            currentAttempt++;
-            console.log(`[Chromium] Attempt ${currentAttempt}: ${attempt.cmd} ${attempt.args.slice(0, 2).join(' ')}`);
-            
-            try {
-                installProcess = spawn(attempt.cmd, attempt.args, {
-                    stdio: 'inherit',
-                    shell: true,
-                    env: { ...process.env }
-                });
-
-                installProcess.on('close', (code) => {
-                    if (code === 0) {
-                        console.log('[Chromium] ✅ Installation completed successfully!');
-                        resolve(true);
-                    } else {
-                        console.warn(`[Chromium] Attempt ${currentAttempt} failed with code ${code}`);
-                        tryInstall(); // Try next approach
-                    }
-                });
-
-                installProcess.on('error', (err) => {
-                    console.warn(`[Chromium] Attempt ${currentAttempt} error: ${err.message}`);
-                    tryInstall(); // Try next approach
-                });
-            } catch (err) {
-                console.warn(`[Chromium] Attempt ${currentAttempt} exception: ${err.message}`);
-                tryInstall(); // Try next approach
-            }
-        }
-        
-        tryInstall();
-    });
+        console.log('[Chromium] ✅ Chromium downloaded and installed successfully!');
+        console.log(`[Chromium] Location: ${revisionInfo.executablePath}`);
+        return true;
+    } catch (err) {
+        console.error(`[Chromium] ❌ Failed to download Chromium: ${err.message}`);
+        return false;
+    }
 }
 
 /**
