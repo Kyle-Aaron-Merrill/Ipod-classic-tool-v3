@@ -23,23 +23,28 @@ import { getTidalTrackMetadata } from './library_scripts/tidal_track_meta_fetche
 // }
 
 /**
- * Auto-installs Chromium using Puppeteer's built-in BrowserFetcher
- * This works even when npm/npx are not in PATH
+ * Auto-installs Chromium by letting Puppeteer handle it automatically
+ * Sets environment to allow Puppeteer to download on first launch
  */
 async function ensureChromiumInstalled() {
-    console.log('[Chromium] Downloading and installing Chromium via Puppeteer...');
+    console.log('[Chromium] Allowing Puppeteer to auto-download Chromium...');
     console.log('[Chromium] This may take 2-5 minutes on first install.');
     
     try {
-        // Use Puppeteer's built-in BrowserFetcher - no external commands needed
-        const browserFetcher = puppeteer.createBrowserFetcher();
-        const revisionInfo = await browserFetcher.download('1314286');
+        // Ensure PUPPETEER_SKIP_DOWNLOAD is NOT set (allow auto-download)
+        delete process.env.PUPPETEER_SKIP_DOWNLOAD;
         
-        console.log('[Chromium] ✅ Chromium downloaded and installed successfully!');
-        console.log(`[Chromium] Location: ${revisionInfo.executablePath}`);
+        // Attempt to launch - Puppeteer will auto-download Chromium if missing
+        const browser = await puppeteer.launch({ 
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+        });
+        
+        console.log('[Chromium] ✅ Puppeteer launched successfully with auto-downloaded Chromium!');
+        await browser.close();
         return true;
     } catch (err) {
-        console.error(`[Chromium] ❌ Failed to download Chromium: ${err.message}`);
+        console.error(`[Chromium] ❌ Failed to launch Puppeteer: ${err.message}`);
         return false;
     }
 }
