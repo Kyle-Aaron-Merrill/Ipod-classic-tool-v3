@@ -5,7 +5,47 @@ import { getPythonCommand } from '../utils/platform-utils.js';
 import { getYtDlpPath } from '../utils/yt-dlp-manager.js';
 
 const manifestPath = process.argv[2];
-const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+// === INITIAL VALIDATION ===
+if (!manifestPath) {
+    const errorMsg = 'No manifest path provided to downloader';
+    console.error(`[Downloader] ERROR: ${errorMsg}`);
+    process.exit(1);
+}
+
+console.log(`[Downloader] Received manifest path: ${manifestPath}`);
+console.log(`[Downloader] Checking if file exists...`);
+
+// Check if manifest file exists before trying to read it
+if (!fs.existsSync(manifestPath)) {
+    const errorMsg = `Manifest file not found at: ${manifestPath}`;
+    console.error(`[Downloader] ERROR: ${errorMsg}`);
+    console.error(`[Downloader] File exists check: false`);
+    
+    // Try to provide helpful info
+    const dir = path.dirname(manifestPath);
+    console.error(`[Downloader] Checking parent directory: ${dir}`);
+    if (fs.existsSync(dir)) {
+        console.error(`[Downloader] Parent directory exists`);
+        console.error(`[Downloader] Files in directory:`, fs.readdirSync(dir));
+    } else {
+        console.error(`[Downloader] Parent directory does not exist`);
+    }
+    
+    process.exit(1);
+}
+
+console.log(`[Downloader] ✅ Manifest file exists`);
+
+let manifest;
+try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+} catch (err) {
+    const errorMsg = `Failed to parse manifest file: ${err.message}`;
+    console.error(`[Downloader] ERROR: ${errorMsg}`);
+    process.exit(1);
+}
+
 const DOWNLOAD_DIR = manifest.music_download_path;
 const COOKIES_PATH = path.join(path.dirname(manifestPath), 'cookies.txt');
 
@@ -133,11 +173,13 @@ async function processAlbum() {
     console.log(`[Downloader] Processing ${tracksToProcess.length} tracks from: ${globalDownloadUrl}`);
 
     for (const track of tracksToProcess) {
+        let outputPath = 'unknown'; // Initialize to avoid undefined reference in catch block
+        
         try {
             const index = manifest.Tracks.findIndex(t => t.title === track.title);
             const safeTitle = track.title.replace(/[\\/:"*?<>|]/g, " ");
             const trackNum = String(track.number || index + 1).padStart(2, '0');
-            const outputPath = path.join(DOWNLOAD_DIR, `${trackNum} - ${safeTitle} - ${manifest.session_id}.mp3`);
+            outputPath = path.join(DOWNLOAD_DIR, `${trackNum} - ${safeTitle} - ${manifest.session_id}.mp3`);
             
             // Build Argument Array (Better for spawn)
             const args = [

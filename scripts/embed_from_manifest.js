@@ -181,11 +181,24 @@ async function embedMetadataFromManifest(manifestPath) {
                     const success = await embedMetadataIntoTrack(filePath, metadata);
                     success ? embedded++ : failed++;
                 } else {
-                    console.warn(`[Embedder] Track file not found: ${filename}`);
+                    console.warn(`[Embedder] ❌ Track file not found for: "${track.title}"`);
+                    console.warn(`[Embedder]    Expected path: ${filePath}`);
+                    console.warn(`[Embedder]    Track status: ${track.status || 'unknown'}`);
+                    
+                    // Show what files ARE in the directory to help debug
+                    const actualFiles = fs.readdirSync(downloadDir).filter(f => f.endsWith('.mp3'));
+                    if (actualFiles.length > 0) {
+                        console.warn(`[Embedder]    Available MP3 files in directory:`);
+                        actualFiles.forEach(f => console.warn(`[Embedder]      - ${f}`));
+                    } else {
+                        console.warn(`[Embedder]    No MP3 files found in directory!`);
+                    }
+                    
                     failed++;
                 }
             } catch (err) {
-                console.error(`[Embedder] Error processing track: ${err.message}`);
+                console.error(`[Embedder] ❌ Error processing track "${track.title || 'Unknown'}": ${err.message}`);
+                console.error(`[Embedder]    Stack: ${err.stack}`);
                 failed++;
             }
         }

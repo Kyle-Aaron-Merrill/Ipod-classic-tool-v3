@@ -161,8 +161,13 @@ function launchCookieExporter() {
                     resolve();
                 } else {
                     console.error(`[MAIN] ❌ Cookie exporter exited with code ${code}`);
-                    console.error(`[MAIN] Last output: ${stdoutData || stderrData || 'no output'}`);
-                    reject(new Error(`Cookie exporter failed with code ${code}`));
+                    if (stderrData) {
+                        console.error(`[MAIN] ❌ Error details:\n${stderrData}`);
+                    } else {
+                        console.error(`[MAIN] Last output: ${stdoutData || 'no output'}`);
+                    }
+                    console.error(`[MAIN] ⚠️  This is usually a Puppeteer/Chromium issue. Continuing anyway...`);
+                    resolve(); // Don't reject - allow pipeline to continue
                 }
             });
             
@@ -198,8 +203,10 @@ function launchCookieExporter() {
 /**
  * Executes the downloader and embedder sequentially.
  * Returns a Promise so the main loop can 'await' the entire process.
+ * @param {string} manifestPath - Path to the manifest file
+ * @param {Function} uiLog - Function to log messages to the UI
  */
-function download(manifestPath) {
+function download(manifestPath, uiLog) {
     return new Promise((resolve, reject) => {
         console.log(`[Main] ⬇️ Starting Downloader for manifest: ${manifestPath}`);
         
@@ -220,7 +227,7 @@ function download(manifestPath) {
 
             // Handle downloader errors
             if (msg.type === 'ERROR') {
-                uiLog(`❌ [Downloader Error] ${msg.message}`);
+                if (uiLog) uiLog(`❌ [Downloader Error] ${msg.message}`);
                 console.error(`[Main] Downloader error: ${msg.message}`);
                 downloader.kill();
                 reject(new Error(msg.message));
@@ -228,7 +235,7 @@ function download(manifestPath) {
 
             // Handle the 403 Forbidden / Cookie refresh fix
             if (msg.type === 'REFRESH_COOKIES_REQUEST') {
-                uiLog("⚠️ [Main] Downloader requested cookie refresh...");
+                if (uiLog) uiLog("⚠️ [Main] Downloader requested cookie refresh...");
                 
                 try {
                     // This should trigger your existing cookie export logic
@@ -236,9 +243,9 @@ function download(manifestPath) {
                     
                     // Tell the downloader it's safe to try again
                     downloader.send({ type: 'REFRESH_COOKIES_DONE' });
-                    uiLog("✅ [Main] Cookies refreshed. Resuming download...");
+                    if (uiLog) uiLog("✅ [Main] Cookies refreshed. Resuming download...");
                 } catch (err) {
-                    uiLog(`❌ [Main] Cookie refresh failed: ${err.message}`);
+                    if (uiLog) uiLog(`❌ [Main] Cookie refresh failed: ${err.message}`);
                 }
             }
         });
@@ -451,7 +458,7 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
                 console.log(`[LinkConverter] Process exited with code: ${code}`);
                 console.log(`[LinkConverter] Output length: ${output.length} bytes`);
                 if (errorOutput) {
-                    console.log(`[LinkConverter] Error output: ${errorOutput}`);
+                    console.error(`[LinkConverter] ❌ STDERR output:\n${errorOutput}`);
                 }
 
                 try {
@@ -474,9 +481,16 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
                         console.log(`[LinkConverter] ✅ Successfully extracted: ${JSON.stringify(queryObj)}`);
                         resolve(queryObj);
                     } else {
-                        if (errorOutput) console.log(`[LinkConverter] Error logs:\n${errorOutput}`);
                         if (code !== 0) {
                             console.error(`[LinkConverter] ❌ Exit code ${code}`);
+                            if (!errorOutput) {
+                                console.error(`[LinkConverter] ❌ No error details captured. This may be a Puppeteer/Chromium issue.`);
+                                console.error(`[LinkConverter] ❌ Suggestions:`);
+                                console.error(`[LinkConverter]    1. Ensure Chromium dependencies are installed`);
+                                console.error(`[LinkConverter]    2. Try disabling hardware acceleration`);
+                                console.error(`[LinkConverter]    3. Check antivirus isn't blocking Puppeteer`);
+                                console.error(`[LinkConverter]    4. Restart the application`);
+                            }
                         }
                         reject(new Error(`Link converter failed: exit code ${code}`));
                     }
@@ -578,15 +592,26 @@ async function processLinks() {
                 return;
             }
 
-            if (!query || !query.artistUrl) {
-                console.error(`[Pipeline-${jobId}] [Step 2/7] ❌ Query is invalid or missing artistUrl`);
+            if (!query) {
+                console.error(`[Pipeline-${jobId}] [Step 2/7] ❌ Query is invalid`);
+                uiLog(`[!] ⚠️  SKIPPING: Could not extract metadata from URL.`);
+                if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
+                return;
+            }
+
+            // For soundtracks and compilations, we might not have an artistUrl but we should still proceed
+            // Use album name as fallback for searching
+            const searchIdentifier = query.artistUrl || query.album || 'Unknown';
+            
+            if (!searchIdentifier || searchIdentifier === 'Unknown') {
+                console.error(`[Pipeline-${jobId}] [Step 2/7] ❌ Query missing both artist and album information`);
                 console.error(`[Pipeline-${jobId}] Query object:`, query);
                 uiLog(`[!] ⚠️  SKIPPING: Could not extract metadata from URL.`);
                 if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
                 return;
             }
 
-            uiLog(`[2/7] 🏷️  Metadata: ${query.artistUrl} - ${query.album} - ${query.track}`);
+            uiLog(`[2/7] 🏷️  Metadata: ${query.artistUrl || '(Compilation/Soundtrack)'} - ${query.album} - ${query.track}`);
 
             // Check if channelUrl is already a direct YouTube URL (not a search URL)
             let yt_dlp_link = null;
@@ -597,8 +622,10 @@ async function processLinks() {
                 yt_dlp_link = query.channelUrl;
             } else {
                 // Need to search for the artist channel and find the release
+                // For soundtracks/compilations, use album name if no artist available
+                const searchQuery = query.artistUrl || query.album || '';
                 console.log(`[Pipeline-${jobId}] [Step 3/7] Extracting YouTube DLP link from query...`);
-                yt_dlp_link = await extractYoutubeDlpLinkFromQuery(query.channelUrl || query.artistUrl, query.media, query.album, query.track);
+                yt_dlp_link = await extractYoutubeDlpLinkFromQuery(query.channelUrl || searchQuery, query.media, query.album, query.track);
                 console.log(`[Pipeline-${jobId}] [Step 3/7] ✅ Got yt_dlp_link: ${yt_dlp_link}`);
             }
             
@@ -628,7 +655,7 @@ async function processLinks() {
 
             console.log(`[Pipeline-${jobId}] [Step 7/7] Starting downloader...`);
             uiLog(`[→] ⬇️  Handoff: Starting Downloader...`);
-            await download(manifestPath);
+            await download(manifestPath, uiLog);
 
             console.log(`[Pipeline-${jobId}] ✅ SUCCESS: Pipeline completed for "${query.album || query.track}"`);
             uiLog(`\n✅ SUCCESS: "${query.album || query.track }" has finished.`);

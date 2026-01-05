@@ -368,13 +368,21 @@ async function getArtist(url, domain, media) {
             const trackId = getTrackID(url)
             await getYoutubeMusicTrackMeta(trackId, manifestPath);
             const artist = extractArtistFromMetadataFile();
+            console.log(`[YouTube Music Track] Extracted artist: ${artist || 'NOT FOUND'}`);
             return artist;
         }
         if (media === 'album'){
             const albumId = getAlbumID(url);
-            await getYoutubeMusicAlbumMeta(albumId, manifestPath);
-            const artist = extractArtistFromMetadataFile();
-            return artist;
+            console.log(`[YouTube Music] Processing album ID: ${albumId}`);
+            try {
+                await getYoutubeMusicAlbumMeta(albumId, manifestPath);
+                const artist = extractArtistFromMetadataFile();
+                console.log(`[YouTube Music Album] Extracted artist: ${artist || 'NOT FOUND'}`);
+                return artist || "Various Artists"; // Provide fallback if extraction fails
+            } catch (err) {
+                console.error(`[YouTube Music Album] Error during metadata extraction: ${err.message}`);
+                return "Various Artists"; // Return fallback on error
+            }
         }
     }
     if (domain === 'tidal'){

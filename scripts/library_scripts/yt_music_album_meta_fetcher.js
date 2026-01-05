@@ -82,16 +82,48 @@ function extractYoutubeMusicMetadata(html, targetUrl, manifestPath) {
 
     const header = $('ytmusic-responsive-header-renderer');
 
-    // Artist: Targets the link inside the strapline-text
+    // Artist: Targets all links inside the strapline-text (handles multiple artists)
     const artistLinks = header.find('.strapline-text a');
     let primaryArtist = "";
+    let allArtists = [];
 
-    if (artistLinks.length > 1) {
-        // If there are multiple links, take the second one as you observed
-        primaryArtist = $(artistLinks[1]).text().trim();
-    } else {
-        // Fallback to the only link available
-        primaryArtist = artistLinks.first().text().trim();
+    if (artistLinks.length > 0) {
+        // Collect all artist names from the links
+        artistLinks.each((i, link) => {
+            const artistName = $(link).text().trim();
+            if (artistName) {
+                allArtists.push(artistName);
+            }
+        });
+        
+        // Use all artists joined by " & " for multi-artist support
+        primaryArtist = allArtists.join(" & ");
+        console.log(`📝 Detected ${allArtists.length} artist(s): ${primaryArtist}`);
+    }
+
+    // Fallback: Try to extract artist from subtitle if no artist links found
+    if (!primaryArtist) {
+        const subtitleElement = header.find('yt-formatted-string.subtitle');
+        const subtitleText = subtitleElement.text().trim();
+        
+        // Subtitle format: "Album • Artist • Year • X songs • Y minutes" or "Album • Year"
+        const parts = subtitleText.split('•').map(p => p.trim());
+        
+        // If we have 3+ parts, the second part might be the artist(s)
+        if (parts.length >= 2) {
+            const possibleArtist = parts[1];
+            // Check if it looks like an artist (not a year)
+            if (!/^\d{4}$/.test(possibleArtist)) {
+                primaryArtist = possibleArtist;
+                console.log(`📝 Extracted artist from subtitle: ${primaryArtist}`);
+            }
+        }
+    }
+
+    // Last resort fallback
+    if (!primaryArtist) {
+        console.warn('⚠️  No artist found in the page - using "Various Artists"');
+        primaryArtist = "Various Artists";
     }
 
     // Album Title: Based on your previous find
