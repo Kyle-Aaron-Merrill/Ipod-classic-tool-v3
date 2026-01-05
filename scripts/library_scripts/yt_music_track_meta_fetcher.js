@@ -1,6 +1,7 @@
 import puppeteer from 'puppeteer';
 import path from 'path';
 import fs from 'fs';
+import { spawn } from 'child_process';
 import * as cheerio from 'cheerio'; // You may need to run: npm install cheerio
 import { url } from 'inspector';
 
@@ -10,6 +11,36 @@ const JSON_OUTPUT_FILE = path.join(OUTPUT_DIR, 'music_metadata_extracted.json');
 
 if (!fs.existsSync(OUTPUT_DIR)) {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+}
+
+/**
+ * Auto-installs Chromium if missing
+ */
+async function ensureChromiumInstalled() {
+    return new Promise((resolve) => {
+        console.log('[Chromium] Attempting to install Chromium for Puppeteer...');
+        console.log('[Chromium] This may take 2-5 minutes on first install.');
+        
+        const installProcess = spawn('npx', ['puppeteer', 'browsers', 'install', 'chrome'], {
+            stdio: 'inherit',
+            shell: true
+        });
+
+        installProcess.on('close', (code) => {
+            if (code === 0) {
+                console.log('[Chromium] ✅ Installation completed successfully!');
+                resolve(true);
+            } else {
+                console.error(`[Chromium] ❌ Installation failed with code ${code}`);
+                resolve(false);
+            }
+        });
+
+        installProcess.on('error', (err) => {
+            console.error(`[Chromium] ❌ Failed to start installation: ${err.message}`);
+            resolve(false);
+        });
+    });
 }
 
 function updateManifestFile(filePath, newData) {
@@ -41,7 +72,7 @@ function updateManifestFile(filePath, newData) {
 /**
  * Captures the full HTML content of the Youtube_Music Music page.
  */
-async function captureYoutubeMusicData(targetUrl) {
+async function captureYoutubeMusicData(targetUrl, retryCount = 0) {
     console.log(`\nSTART: Capturing Youtube_Music Music Page for: ${targetUrl}`);
 
     // Convert music.youtube.com to www.youtube.com to get proper HTML structure with metadata
@@ -281,7 +312,22 @@ async function captureYoutubeMusicData(targetUrl) {
         fs.writeFileSync(HTML_FILE, pageContent, 'utf8');
         console.log(`✅ Captured and saved HTML to **${HTML_FILE}**`);
     } catch (error) {
-        console.error(`❌ YouTube Music scraping failed: ${error.message}`);
+        const errorMsg = error.message || error.toString();
+        
+        // Check if it's a Chrome not found error
+        if ((errorMsg.includes('Could not find Chrome') || errorMsg.includes('Could not find Chromium')) && retryCount === 0) {
+            console.error(`❌ Chrome/Chromium not found!`);
+            console.log(`[Chromium] Auto-installing Chromium...`);
+            
+            const installSuccess = await ensureChromiumInstalled();
+            if (installSuccess) {
+                console.log('[Chromium] Retrying YouTube Music capture...');
+                // Retry once after installation
+                return captureYoutubeMusicData(targetUrl, 1);
+            }
+        }
+        
+        console.error(`❌ YouTube Music scraping failed: ${errorMsg}`);
         console.error('❌ This is common on Windows - returning null to skip this item');
     } finally {
         if (browser) {

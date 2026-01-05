@@ -279,6 +279,19 @@ function download(manifestPath, uiLog) {
 async function updateManifest(manifestPath, yt_dlp_link) {
     let masterMetadata = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
+    // Safety check: if Tracks is missing or empty, this is likely a Puppeteer failure
+    if (!masterMetadata.Tracks || masterMetadata.Tracks.length === 0) {
+        console.error(`[Main] ❌ CRITICAL: No tracks found in manifest. This typically means:`);
+        console.error(`[Main]    - Puppeteer failed to scrape YouTube Music metadata`);
+        console.error(`[Main]    - Chromium/Chrome is not installed or accessible`);
+        console.error(`[Main]    - Antivirus is blocking the browser automation`);
+        console.error(`[Main]    `);
+        console.error(`[Main] 📋 SOLUTION: Run this command to install Chromium:`);
+        console.error(`[Main]    npx puppeteer browsers install chrome`);
+        console.error(`[Main] `);
+        throw new Error("Cannot proceed: No tracks available. Puppeteer/Chromium issue. See PUPPETEER_FIX.md for help.");
+    }
+
     const jobManifest = {
         ...masterMetadata,
         download_url: yt_dlp_link || "", 

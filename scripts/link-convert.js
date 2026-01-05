@@ -1,6 +1,7 @@
 import puppeteer from "puppeteer";
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 import { getAmazonAlbumMeta } from './library_scripts/amazon_album_meta_fetcher.js';
 import { getAmazonTrackMeta } from './library_scripts/amazon_track_meta_fetcher.js';
 import { getSpotifyAlbumMeta } from './library_scripts/spotify_album_meta_fetcher.js';
@@ -21,7 +22,35 @@ import { getTidalTrackMetadata } from './library_scripts/tidal_track_meta_fetche
 //     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 // }
 
+/**
+ * Auto-installs Chromium if missing
+ */
+async function ensureChromiumInstalled() {
+    return new Promise((resolve) => {
+        console.log('[Chromium] Attempting to install Chromium for Puppeteer...');
+        console.log('[Chromium] This may take 2-5 minutes on first install.');
+        
+        const installProcess = spawn('npx', ['puppeteer', 'browsers', 'install', 'chrome'], {
+            stdio: 'inherit',
+            shell: true
+        });
 
+        installProcess.on('close', (code) => {
+            if (code === 0) {
+                console.log('[Chromium] ✅ Installation completed successfully!');
+                resolve(true);
+            } else {
+                console.error(`[Chromium] ❌ Installation failed with code ${code}`);
+                resolve(false);
+            }
+        });
+
+        installProcess.on('error', (err) => {
+            console.error(`[Chromium] ❌ Failed to start installation: ${err.message}`);
+            resolve(false);
+        });
+    });
+}
 
 /**
  * Resolves a browse/redirect link by opening it in Puppeteer and capturing the final URL.
@@ -262,6 +291,26 @@ async function main() {
         process.exit(0);
     } catch (err) {
         const errorMsg = err.message || String(err);
+        
+        // Check if it's a Chrome not found error and auto-install
+        if ((errorMsg.includes('Could not find Chrome') || errorMsg.includes('Could not find Chromium')) && !process.env.CHROMIUM_INSTALL_ATTEMPTED) {
+            console.error(`❌ Chrome/Chromium not found!`);
+            console.log(`[Chromium] Auto-installing Chromium...`);
+            
+            // Mark that we've attempted installation to avoid infinite loop
+            process.env.CHROMIUM_INSTALL_ATTEMPTED = 'true';
+            
+            const installSuccess = await ensureChromiumInstalled();
+            if (installSuccess) {
+                console.log('[Chromium] Retrying link conversion...');
+                // Retry the main function
+                await main();
+                return;
+            } else {
+                console.error(`❌ Failed to auto-install Chromium`);
+            }
+        }
+        
         console.error(`[Link-Convert] Fatal error: ${errorMsg}`);
         if (process.send) {
             process.send({ type: 'error', data: errorMsg });

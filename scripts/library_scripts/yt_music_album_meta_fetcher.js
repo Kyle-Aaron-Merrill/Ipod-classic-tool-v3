@@ -1,6 +1,7 @@
 import puppeteer from 'puppeteer';
 import path from 'path';
 import fs from 'fs';
+import { spawn } from 'child_process';
 import * as cheerio from 'cheerio'; // You may need to run: npm install cheerio
 
 const OUTPUT_DIR = 'assets/lib-json';
@@ -12,9 +13,39 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 }
 
 /**
+ * Auto-installs Chromium if missing
+ */
+async function ensureChromiumInstalled() {
+    return new Promise((resolve) => {
+        console.log('[Chromium] Attempting to install Chromium for Puppeteer...');
+        console.log('[Chromium] This may take 2-5 minutes on first install.');
+        
+        const installProcess = spawn('npx', ['puppeteer', 'browsers', 'install', 'chrome'], {
+            stdio: 'inherit',
+            shell: true
+        });
+
+        installProcess.on('close', (code) => {
+            if (code === 0) {
+                console.log('[Chromium] ✅ Installation completed successfully!');
+                resolve(true);
+            } else {
+                console.error(`[Chromium] ❌ Installation failed with code ${code}`);
+                resolve(false);
+            }
+        });
+
+        installProcess.on('error', (err) => {
+            console.error(`[Chromium] ❌ Failed to start installation: ${err.message}`);
+            resolve(false);
+        });
+    });
+}
+
+/**
  * Captures the full HTML content of the Youtube_Music Music page.
  */
-async function captureYoutubeMusicData(targetUrl) {
+async function captureYoutubeMusicData(targetUrl, retryCount = 0) {
     console.log(`\nSTART: Capturing Youtube_Music Music Page for: ${targetUrl}`);
 
     let browser = null;
@@ -48,7 +79,22 @@ async function captureYoutubeMusicData(targetUrl) {
         pageContent = await page.content(); 
         console.log(`✅ Captured HTML from YouTube Music`);
     } catch (error) {
-        console.error(`❌ YouTube Music scraping failed: ${error.message}`);
+        const errorMsg = error.message || error.toString();
+        
+        // Check if it's a Chrome not found error
+        if ((errorMsg.includes('Could not find Chrome') || errorMsg.includes('Could not find Chromium')) && retryCount === 0) {
+            console.error(`❌ Chrome/Chromium not found!`);
+            console.log(`[Chromium] Auto-installing Chromium...`);
+            
+            const installSuccess = await ensureChromiumInstalled();
+            if (installSuccess) {
+                console.log('[Chromium] Retrying YouTube Music capture...');
+                // Retry once after installation
+                return captureYoutubeMusicData(targetUrl, 1);
+            }
+        }
+        
+        console.error(`❌ YouTube Music scraping failed: ${errorMsg}`);
         console.error('❌ This is common on Windows - returning null to skip this item');
     } finally {
         if (browser) {
