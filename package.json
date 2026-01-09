@@ -29,6 +29,7 @@
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
+    "@puppeteer/browsers": "^2.11.0",
     "cheerio": "^1.1.2",
     "ffmpeg-static": "^5.2.0",
     "node-fetch": "^3.3.2",
@@ -56,8 +57,16 @@
       "scripts/**/*",
       "utils/**/*",
       "assets/**/*",
+      "build/chrome/**/*",
       "node_modules/**/*",
       "package.json"
+    ],
+    "extraFiles": [
+      {
+        "from": "build/chrome",
+        "to": "resources/chrome",
+        "filter": ["**/*"]
+      }
     ],
     "win": {
       "target": [

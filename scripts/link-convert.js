@@ -1,7 +1,9 @@
 import puppeteer from "puppeteer";
+import { downloadChrome } from '@puppeteer/browsers';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import os from 'os';
 import { getAmazonAlbumMeta } from './library_scripts/amazon_album_meta_fetcher.js';
 import { getAmazonTrackMeta } from './library_scripts/amazon_track_meta_fetcher.js';
 import { getSpotifyAlbumMeta } from './library_scripts/spotify_album_meta_fetcher.js';
@@ -27,24 +29,39 @@ import { getTidalTrackMetadata } from './library_scripts/tidal_track_meta_fetche
  * Sets environment to allow Puppeteer to download on first launch
  */
 async function ensureChromiumInstalled() {
-    console.log('[Chromium] Allowing Puppeteer to auto-download Chromium...');
+    console.log('[Chromium] Downloading Chrome via @puppeteer/browsers...');
     console.log('[Chromium] This may take 2-5 minutes on first install.');
     
     try {
-        // Ensure PUPPETEER_SKIP_DOWNLOAD is NOT set (allow auto-download)
-        delete process.env.PUPPETEER_SKIP_DOWNLOAD;
+        // Set cache directory to user's home folder (guaranteed writable)
+        const cacheDir = os.homedir() + '/.cache/puppeteer';
+        process.env.PUPPETEER_CACHE_DIR = cacheDir;
         
-        // Attempt to launch - Puppeteer will auto-download Chromium if missing
-        const browser = await puppeteer.launch({ 
+        // Explicitly download Chrome - this WAITS for completion
+        console.log(`[Chromium] Cache directory: ${cacheDir}`);
+        console.log(`[Chromium] ⏳ Starting download... this may take a few minutes...`);
+        
+        const browserPath = await downloadChrome({ 
+            cacheDir: cacheDir,
+            buildId: 'latest',
+            platform: 'win64'
+        });
+        
+        console.log(`[Chromium] ✅ Chrome successfully downloaded to: ${browserPath}`);
+        console.log(`[Chromium] 🔍 Verifying installation...`);
+        
+        // Verify by launching to ensure it's actually usable
+        const testBrowser = await puppeteer.launch({ 
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox'] 
         });
+        await testBrowser.close();
+        console.log(`[Chromium] ✅ Chrome verified and working!`);
         
-        console.log('[Chromium] ✅ Puppeteer launched successfully with auto-downloaded Chromium!');
-        await browser.close();
         return true;
     } catch (err) {
-        console.error(`[Chromium] ❌ Failed to launch Puppeteer: ${err.message}`);
+        console.error(`[Chromium] ❌ Failed to download Chrome: ${err.message}`);
+        console.error(`[Chromium] Stack: ${err.stack}`);
         return false;
     }
 }
