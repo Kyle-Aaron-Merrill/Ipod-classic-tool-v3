@@ -12,6 +12,7 @@ import { getPythonCommand, escapePath } from './utils/platform-utils.js';
 import { embedMetadataFromManifest } from './scripts/embed_from_manifest.js';
 import { fetchMetadataWithGPT } from './scripts/fetch_gpt_meta.js';
 import { getTrackUrl } from './scripts/get_track_url.js';
+import { setupDependencyHandlers } from './utils/dependency-setup-handler.js';
 
 // --- CRITICAL: Global Error Handlers to Prevent Process Crashes ---
 // Catch unhandled promise rejections (prevents terminal reset on crash)
@@ -38,7 +39,8 @@ const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = __dirname;
 const UI_HTML_PATH = path.join(PROJECT_ROOT, 'ui', 'index.html');
 const PRELOAD_JS_PATH = path.join(PROJECT_ROOT, 'preload.js');
-const UI_SETUP_PATH = path.join(PROJECT_ROOT, 'ui', 'setup.html'); 
+const UI_SETUP_PATH = path.join(PROJECT_ROOT, 'ui', 'setup.html');
+const DEPENDENCY_SETUP_PATH = path.join(PROJECT_ROOT, 'ui', 'dependency-setup.html');
 const ICON_PATH = path.join(PROJECT_ROOT, 'build', 'logo.png');
 
 const APP_DATA_DIR = app.getPath('userData');
@@ -1022,6 +1024,28 @@ function createSetupWindow() {
     });
 }
 
+function createDependencyWindow() {
+    let depWindow = new BrowserWindow({
+        width: 800,
+        height: 900,
+        resizable: true,
+        frame: true,
+        icon: ICON_PATH,
+        webPreferences: { preload: PRELOAD_JS_PATH, contextIsolation: true, nodeIntegration: false }
+    });
+    depWindow.loadFile(DEPENDENCY_SETUP_PATH);
+    //depWindow.webContents.openDevTools();
+    
+    // Setup dependency handlers
+    setupDependencyHandlers(depWindow);
+    
+    depWindow.on('closed', () => {
+        depWindow = null;
+    });
+    
+    return depWindow;
+}
+
 /*
 APP LIFECYCLE
 */
@@ -1063,5 +1087,10 @@ app.on('ready', () => {
             console.error(`[Main] Failed to create window: ${windowErr.message}`);
         }
     }
+});
+
+// IPC handler to open dependency setup window
+ipcMain.on('open-dependency-setup', (event) => {
+    createDependencyWindow();
 });
 

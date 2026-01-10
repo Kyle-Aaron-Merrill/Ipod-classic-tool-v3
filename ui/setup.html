@@ -14,8 +14,15 @@
 </head>
 <body class="p-8 flex items-center justify-center min-h-screen">
     <div class="w-full max-w-lg bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
-        <h1 class="text-3xl font-bold text-gray-800 mb-2">Welcome to Metadata Filler v2</h1>
-        <p class="text-gray-500 mb-6">Please enter your credentials to get started. This configuration will be saved securely on your computer.</p>
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800 mb-2">Welcome to Metadata Filler v2</h1>
+                <p class="text-gray-500 mb-6">Please enter your credentials to get started. This configuration will be saved securely on your computer.</p>
+            </div>
+            <button id="setupDependenciesBtn" class="px-4 py-2 bg-blue-500 text-white text-sm font-semibold rounded-lg hover:bg-blue-600 transition" title="Run dependency setup (Node.js, Python, Chromium)">
+                ⚙️ Setup
+            </button>
+        </div>
 
         <form id="setupForm" class="space-y-4">
             <div>
@@ -142,6 +149,14 @@
                      console.error("IPC Error: window.electronAPI.saveConfig is not available.");
                 }
             });
+
+            // Handle setup dependencies button
+            const setupDependenciesBtn = document.getElementById('setupDependenciesBtn');
+            if (setupDependenciesBtn && api && api.openDependencySetup) {
+                setupDependenciesBtn.addEventListener('click', () => {
+                    api.openDependencySetup();
+                });
+            }
 
             if (api && api.onSaveConfigReply) {
                 api.onSaveConfigReply(({ success, message: msg }) => {

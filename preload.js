@@ -106,7 +106,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onSaveConfigReply: (callback) => {
         // Returns the unsubscribe function
         return receiveIpc('save-config-reply', callback);
-    }
+    },
+
+    // Open dependency setup window
+    openDependencySetup: () => ipcRenderer.send('open-dependency-setup')
 });
 
 console.log('Preload script loaded with electronAPI');

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iPod Classic Tool - Dependency Setup</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-success {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        .status-error {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        .status-pending {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+        .output-container {
+            background-color: #1f2937;
+            color: #e5e7eb;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 16px;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #374151;
+        }
+        .output-line {
+            margin: 4px 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .output-success { color: #86efac; }
+        .output-error { color: #f87171; }
+        .output-warning { color: #fbbf24; }
+        .output-info { color: #60a5fa; }
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div class="max-w-2xl mx-auto">
+        <!-- Header -->
+        <div class="bg-white rounded-t-lg shadow-lg p-6 border-b border-gray-200">
+            <div class="flex items-center justify-between mb-2">
+                <h1 class="text-3xl font-bold text-gray-800">📦 Dependency Setup</h1>
+                <div id="statusBadge" class="status-badge status-pending">
+                    <span id="statusText">Waiting to start...</span>
+                </div>
+            </div>
+            <p class="text-gray-600">Installing and verifying Node.js, Python, and Chromium</p>
+        </div>
+
+        <!-- Main Content -->
+        <div class="bg-white shadow-lg p-6">
+            <!-- Dependency Checks -->
+            <div class="space-y-3 mb-6">
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center gap-3">
+                        <span id="nodeIcon" class="text-xl">⏳</span>
+                        <div>
+                            <div class="font-semibold text-gray-800">Node.js</div>
+                            <div id="nodeVersion" class="text-sm text-gray-500">Checking...</div>
+                        </div>
+                    </div>
+                    <span id="nodeBadge" class="status-badge status-pending">Pending</span>
+                </div>
+
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center gap-3">
+                        <span id="npmIcon" class="text-xl">⏳</span>
+                        <div>
+                            <div class="font-semibold text-gray-800">npm</div>
+                            <div id="npmVersion" class="text-sm text-gray-500">Checking...</div>
+                        </div>
+                    </div>
+                    <span id="npmBadge" class="status-badge status-pending">Pending</span>
+                </div>
+
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center gap-3">
+                        <span id="pythonIcon" class="text-xl">⏳</span>
+                        <div>
+                            <div class="font-semibold text-gray-800">Python</div>
+                            <div id="pythonVersion" class="text-sm text-gray-500">Checking...</div>
+                        </div>
+                    </div>
+                    <span id="pythonBadge" class="status-badge status-pending">Pending</span>
+                </div>
+            </div>
+
+            <!-- Output Log -->
+            <div class="mb-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-3">Setup Output</h2>
+                <div id="outputContainer" class="output-container">
+                    <div class="output-line output-info">Initializing setup...</div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex gap-3 justify-end">
+                <button id="closeBtn" class="px-6 py-2 bg-gray-300 text-gray-800 font-semibold rounded-lg hover:bg-gray-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    Close
+                </button>
+                <button id="runSetupBtn" class="px-6 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-lg hover:from-blue-600 hover:to-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                    <span>▶</span>
+                    Run Setup
+                </button>
+            </div>
+        </div>
+
+        <!-- Info Footer -->
+        <div class="bg-blue-50 rounded-b-lg shadow-lg p-4 border-t border-blue-200 text-sm text-blue-800">
+            <strong>ℹ️ Info:</strong> This will download and install Node.js, Python, and Chromium if they're missing. This may take 5-10 minutes.
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        const runSetupBtn = document.getElementById('runSetupBtn');
+        const closeBtn = document.getElementById('closeBtn');
+        const outputContainer = document.getElementById('outputContainer');
+
+        function appendOutput(message, type = 'info') {
+            const line = document.createElement('div');
+            line.className = `output-line output-${type}`;
+            line.textContent = message;
+            outputContainer.appendChild(line);
+            outputContainer.scrollTop = outputContainer.scrollHeight;
+        }
+
+        function updateStatus(tool, status, version = '') {
+            const icon = {
+                'success': '✅',
+                'error': '❌',
+                'pending': '⏳'
+            }[status] || '⏳';
+
+            const badge = {
+                'success': 'status-success',
+                'error': 'status-error',
+                'pending': 'status-pending'
+            }[status] || 'status-pending';
+
+            const badge_text = {
+                'success': 'Installed',
+                'error': 'Failed',
+                'pending': 'Checking'
+            }[status] || 'Checking';
+
+            document.getElementById(`${tool}Icon`).textContent = icon;
+            document.getElementById(`${tool}Badge`).textContent = badge_text;
+            document.getElementById(`${tool}Badge`).className = `status-badge ${badge}`;
+            if (version) {
+                document.getElementById(`${tool}Version`).textContent = version;
+            }
+        }
+
+        function updateMainStatus(status) {
+            const statusBadge = document.getElementById('statusBadge');
+            const statusText = document.getElementById('statusText');
+
+            const config = {
+                'success': { text: '✅ Complete', class: 'status-success' },
+                'error': { text: '❌ Failed', class: 'status-error' },
+                'running': { text: '🔄 Running Setup...', class: 'status-pending' }
+            };
+
+            if (config[status]) {
+                statusBadge.textContent = config[status].text;
+                statusBadge.className = `status-badge ${config[status].class}`;
+            }
+        }
+
+        runSetupBtn.addEventListener('click', async () => {
+            runSetupBtn.disabled = true;
+            outputContainer.innerHTML = '';
+            updateMainStatus('running');
+            
+            appendOutput('Starting setup process...', 'info');
+            appendOutput('', 'info');
+
+            ipcRenderer.send('run-setup-bat');
+        });
+
+        closeBtn.addEventListener('click', () => {
+            ipcRenderer.send('close-dependency-window');
+        });
+
+        // Listen for setup output
+        ipcRenderer.on('setup-output', (event, message, type) => {
+            appendOutput(message, type);
+        });
+
+        // Listen for status updates
+        ipcRenderer.on('setup-status', (event, tool, status, version) => {
+            updateStatus(tool, status, version);
+        });
+
+        // Listen for completion
+        ipcRenderer.on('setup-complete', (event, success, message) => {
+            updateMainStatus(success ? 'success' : 'error');
+            appendOutput('', 'info');
+            appendOutput(message, success ? 'success' : 'error');
+            runSetupBtn.disabled = false;
+            
+            // Auto-close after 5 seconds if successful
+            if (success) {
+                setTimeout(() => {
+                    ipcRenderer.send('close-dependency-window');
+                }, 5000);
+            }
+        });
+
+        // Initial load - check if setup is needed
+        ipcRenderer.send('check-dependencies');
+    </script>
+</body>
+</html>
