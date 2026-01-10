@@ -53,6 +53,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "setup.bat",
       "ui/**/*",
       "scripts/**/*",
       "utils/**/*",
@@ -78,7 +79,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName} Setup ${version}.${ext}"
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.exe"

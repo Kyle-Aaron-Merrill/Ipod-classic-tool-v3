@@ -3,7 +3,7 @@ import path, { normalize, resolve } from 'path';
 import fs from 'fs'; 
 import os from 'os';
 import crypto from 'crypto';
-import { exec, fork } from 'child_process';
+import { exec, fork, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { get } from 'http';
 import { url } from 'inspector';
@@ -104,6 +104,59 @@ console.error = (...args) => {
 const CONVERTER_PATH = path.join(PROJECT_ROOT, 'scripts', 'link-convert.js');
 const DLP_PATH = path.join(PROJECT_ROOT, 'scripts', 'get_yt_dlp_link.js');
 
+// Check if dependencies are available
+function checkDependencies() {
+    const deps = {
+        node: false,
+        npm: false,
+        python: false
+    };
+    
+    try {
+        execSync('where node', { stdio: 'pipe' });
+        deps.node = true;
+    } catch (e) {
+        // Node not found
+    }
+    
+    try {
+        execSync('where npm', { stdio: 'pipe' });
+        deps.npm = true;
+    } catch (e) {
+        // npm not found
+    }
+    
+    try {
+        execSync('where python', { stdio: 'pipe' });
+        deps.python = true;
+    } catch (e) {
+        // Python not found
+    }
+    
+    return deps;
+}
+
+function areDependenciesMissing() {
+    try {
+        execSync('where node', { stdio: 'pipe' });
+    } catch (e) {
+        return true; // Node missing
+    }
+    
+    try {
+        execSync('where npm', { stdio: 'pipe' });
+    } catch (e) {
+        return true; // npm missing
+    }
+    
+    try {
+        execSync('where python', { stdio: 'pipe' });
+    } catch (e) {
+        return true; // Python missing
+    }
+    
+    return false; // All dependencies found
+}
 
 if (!fs.existsSync(MUSIC_PATH)) {
     fs.mkdirSync(MUSIC_PATH, { recursive: true });
@@ -1017,7 +1070,6 @@ function createSetupWindow() {
         webPreferences: { preload: PRELOAD_JS_PATH, contextIsolation: true, nodeIntegration: false }
     });
     setupWindow.loadFile(UI_SETUP_PATH);
-    //setupWindow.webContents.openDevTools();
     setupWindow.on('closed', () => {
         setupWindow = null;
         if (!fs.existsSync(CONFIG_PATH)) app.quit();
@@ -1034,7 +1086,6 @@ function createDependencyWindow() {
         webPreferences: { preload: PRELOAD_JS_PATH, contextIsolation: true, nodeIntegration: false }
     });
     depWindow.loadFile(DEPENDENCY_SETUP_PATH);
-    //depWindow.webContents.openDevTools();
     
     // Setup dependency handlers
     setupDependencyHandlers(depWindow);
@@ -1058,6 +1109,27 @@ app.on('ready', () => {
     try {
         loggingEnabled = true; // Enable file logging now
         console.log("=== iPod Classic Tool Started ===");
+        
+        // Check if dependencies are missing on first startup
+        let depsMissing = false;
+        try {
+            depsMissing = areDependenciesMissing();
+        } catch (depsErr) {
+            console.warn("[MAIN] Error checking dependencies, assuming missing:", depsErr.message);
+            depsMissing = true;
+        }
+        
+        if (depsMissing) {
+            console.log("[MAIN] Dependencies missing! Opening dependency setup window...");
+            try {
+                createDependencyWindow();
+            } catch (depWinErr) {
+                console.error("[MAIN] Error creating dependency window:", depWinErr.message);
+                // Fallback - create a basic window
+                if (!mainWindow) createWindow();
+            }
+            return; // Don't proceed with app initialization until dependencies are installed
+        }
         
         if (fs.existsSync(CONFIG_PATH)) { 
             try {
@@ -1094,3 +1166,30 @@ ipcMain.on('open-dependency-setup', (event) => {
     createDependencyWindow();
 });
 
+// IPC handler for when dependencies are successfully installed
+ipcMain.on('dependencies-installed', () => {
+    console.log("[MAIN] Dependencies installed successfully. Initializing app...");
+    
+    try {
+        if (fs.existsSync(CONFIG_PATH)) {
+            try {
+                loadConfig();
+            } catch (cfgErr) {
+                console.error(`[Main] Error loading config: ${cfgErr.message}`);
+            }
+            createWindow();
+        } else {
+            createSetupWindow();
+        }
+        
+        if (!fs.existsSync(COOKIES_PATH)) {
+            try {
+                launchCookieExporter();
+            } catch (cookieErr) {
+                console.warn(`[Main] Error launching cookie exporter: ${cookieErr.message}`);
+            }
+        }
+    } catch (err) {
+        console.error(`[Main] Error initializing app after dependency setup: ${err.message}`);
+    }
+});

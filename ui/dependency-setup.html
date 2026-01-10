@@ -143,8 +143,7 @@
     </div>
 
     <script>
-        const { ipcRenderer } = require('electron');
-
+        // Use ipcRenderer from preload
         const runSetupBtn = document.getElementById('runSetupBtn');
         const closeBtn = document.getElementById('closeBtn');
         const outputContainer = document.getElementById('outputContainer');
@@ -176,11 +175,17 @@
                 'pending': 'Checking'
             }[status] || 'Checking';
 
-            document.getElementById(`${tool}Icon`).textContent = icon;
-            document.getElementById(`${tool}Badge`).textContent = badge_text;
-            document.getElementById(`${tool}Badge`).className = `status-badge ${badge}`;
-            if (version) {
-                document.getElementById(`${tool}Version`).textContent = version;
+            const iconEl = document.getElementById(`${tool}Icon`);
+            const badgeEl = document.getElementById(`${tool}Badge`);
+            const versionEl = document.getElementById(`${tool}Version`);
+            
+            if (iconEl) iconEl.textContent = icon;
+            if (badgeEl) {
+                badgeEl.textContent = badge_text;
+                badgeEl.className = `status-badge ${badge}`;
+            }
+            if (version && versionEl) {
+                versionEl.textContent = version;
             }
         }
 
@@ -241,7 +246,9 @@
         });
 
         // Initial load - check if setup is needed
-        ipcRenderer.send('check-dependencies');
+        if (ipcRenderer) {
+            ipcRenderer.send('check-dependencies');
+        }
     </script>
 </body>
 </html>
