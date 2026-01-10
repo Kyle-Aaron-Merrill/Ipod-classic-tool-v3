@@ -58,16 +58,25 @@ if errorlevel 1 (
     if errorlevel 1 (
         echo ERROR: Node.js was installed but 'node' command is not accessible
         echo Please restart your computer and run setup again
-        pause
         exit /b 1
     )
     
     REM Cleanup
     rmdir /s /q "%TEMP_DIR%"
+    echo.
+    echo ========== SUCCESS =========
+    echo ✓ Node.js installed and added to PATH
+    node --version
+    echo ✓ npm available
+    npm --version
+    echo =============================
+    echo.
+) else (
+    echo [✓] Node.js already installed
+    node --version
+    echo [✓] npm available
+    npm --version
 )
-echo [✓] Node.js is available
-node --version
-npm --version
 
 echo.
 echo [2/4] Checking Python installation...
@@ -116,15 +125,21 @@ if errorlevel 1 (
     if errorlevel 1 (
         echo ERROR: Python was installed but 'python' command is not accessible
         echo Please restart your computer and run setup again
-        pause
         exit /b 1
     )
     
     REM Cleanup
     rmdir /s /q "%TEMP_DIR%"
+    echo.
+    echo ========== SUCCESS =========
+    echo ✓ Python installed and added to PATH
+    python --version
+    echo =============================
+    echo.
+) else (
+    echo [✓] Python already installed
+    python --version
 )
-echo [✓] Python is available
-python --version
 
 echo.
 echo [3/4] Installing Python packages...
@@ -162,6 +177,8 @@ echo Checking that all tools are accessible...
 echo.
 
 REM Final verification
+echo === FINAL VERIFICATION ===
+echo.
 node --version >nul 2>&1
 if errorlevel 1 (
     echo ❌ ERROR: Node.js is not in PATH!
@@ -174,7 +191,7 @@ if errorlevel 1 (
     echo.
     exit /b 1
 )
-echo ✅ node command works: 
+echo ✅ Node.js is in PATH:
 node --version
 
 npm --version >nul 2>&1
@@ -185,7 +202,7 @@ if errorlevel 1 (
     echo.
     exit /b 1
 )
-echo ✅ npm command works: 
+echo ✅ npm is in PATH:
 npm --version
 
 python --version >nul 2>&1
@@ -197,10 +214,9 @@ if errorlevel 1 (
     echo 2. Restart your computer
     echo 3. Run setup.bat again
     echo.
-    pause
     exit /b 1
 )
-echo ✅ python command works: 
+echo ✅ Python is in PATH:
 python --version
 
 echo.
