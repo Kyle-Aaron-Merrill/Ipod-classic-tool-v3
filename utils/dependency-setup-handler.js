@@ -15,32 +15,35 @@ export function setupDependencyHandlers(window) {
     ipcMain.on('check-dependencies', (event) => {
         console.log('[Dependency Check] Checking for installed tools...');
         
-        try {
-            execSync('where node', { stdio: 'pipe' });
-            console.log('[Dependency Check] ✓ Node.js found');
-            event.reply('setup-status', 'node', 'success', 'Installed');
-        } catch (e) {
-            console.log('[Dependency Check] ✗ Node.js not found');
-            event.reply('setup-status', 'node', 'error', 'Not found');
-        }
+        const checkCommand = (cmd, name) => {
+            try {
+                // Try multiple methods to check for command availability
+                let result;
+                if (process.platform === 'win32') {
+                    // On Windows, try 'where' first, then use shell check
+                    try {
+                        result = execSync(`where ${cmd}`, { stdio: 'pipe', shell: true, timeout: 5000 }).toString().trim();
+                    } catch (e1) {
+                        // Fallback: try to get version directly
+                        result = execSync(`${cmd} --version`, { stdio: 'pipe', shell: true, timeout: 5000 }).toString().trim();
+                    }
+                } else {
+                    result = execSync(`which ${cmd}`, { stdio: 'pipe', timeout: 5000 }).toString().trim();
+                }
+                
+                console.log(`[Dependency Check] ✓ ${name} found at: ${result.split('\n')[0]}`);
+                event.reply('setup-status', cmd, 'success', 'Installed');
+                return true;
+            } catch (e) {
+                console.log(`[Dependency Check] ✗ ${name} not found: ${e.message}`);
+                event.reply('setup-status', cmd, 'error', 'Not found');
+                return false;
+            }
+        };
 
-        try {
-            execSync('where npm', { stdio: 'pipe' });
-            console.log('[Dependency Check] ✓ npm found');
-            event.reply('setup-status', 'npm', 'success', 'Installed');
-        } catch (e) {
-            console.log('[Dependency Check] ✗ npm not found');
-            event.reply('setup-status', 'npm', 'error', 'Not found');
-        }
-
-        try {
-            execSync('where python', { stdio: 'pipe' });
-            console.log('[Dependency Check] ✓ Python found');
-            event.reply('setup-status', 'python', 'success', 'Installed');
-        } catch (e) {
-            console.log('[Dependency Check] ✗ Python not found');
-            event.reply('setup-status', 'python', 'error', 'Not found');
-        }
+        checkCommand('node', 'Node.js');
+        checkCommand('npm', 'npm');
+        checkCommand('python', 'Python');
     });
 
     // Run setup.bat
@@ -227,5 +230,12 @@ export function setupDependencyHandlers(window) {
         if (window) {
             window.close();
         }
+    });
+
+    // Re-check dependencies (manual refresh)
+    ipcMain.on('recheck-dependencies', (event) => {
+        console.log('[Dependency Check] Manual recheck requested');
+        // Trigger the same check as initial load
+        event.emit('check-dependencies', event);
     });
 }
