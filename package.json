@@ -8,7 +8,10 @@
     "test": "node scripts/library_scripts/test_runner.js",
     "test:platform": "node scripts/test-platform.js",
     "postinstall": "node scripts/postinstall.js",
+    "chrome:install": "npx puppeteer browsers install chrome",
     "build": "electron-builder",
+    "test:puppeteer": "node scripts/puppeteer_sanity_check.js",
+    "test:puppeteer:force": "node scripts/puppeteer_sanity_check.js --force",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
@@ -50,6 +53,12 @@
       "buildResources": "assets",
       "output": "dist"
     },
+    "asarUnpack": [
+      "scripts/**/*",
+      "utils/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
     "files": [
       "main.js",
       "preload.js",

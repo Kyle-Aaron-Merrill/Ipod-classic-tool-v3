@@ -1,10 +1,50 @@
 @echo off
-REM iPod Classic Tool v3 - Portable Setup Script
 setlocal enabledelayedexpansion
+chcp 65001 >nul 2>&1
+
+REM Check for admin privileges
+openfiles >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ================================================================================
+    echo [!] ADMINISTRATOR PRIVILEGES REQUIRED
+    echo ================================================================================
+    echo.
+    echo This setup needs admin privileges to:
+    echo   - Install Node.js, Python, and dependencies
+    echo   - Add tools to system PATH for permanent access
+    echo   - Configure system settings
+    echo.
+    echo A permission dialog will appear. Please click "Yes" to continue.
+    echo.
+    timeout /t 3
+    
+    REM Try to elevate using PowerShell
+    powershell -NoProfile -Command "Start-Process -FilePath '%0' -ArgumentList '%1' -Verb RunAs -Wait" 2>nul
+    if errorlevel 1 (
+        echo.
+        echo [ERROR] Admin privileges were not granted or elevation failed
+        echo [INFO] Setup cannot continue without admin access
+        echo.
+        pause
+        exit /b 1
+    ) else (
+        exit /b 0
+    )
+)
 
 echo.
 echo === iPod Classic Tool v3 - Portable Dependency Setup ===
 echo.
+
+REM Get project directory from parameter, or use current directory
+if "%~1"=="" (
+    set "PROJECT_DIR=%cd%"
+) else (
+    set "PROJECT_DIR=%~1"
+)
+
+echo [DEBUG] PROJECT_DIR set to: !PROJECT_DIR!
 
 REM Create temp directory
 set "TEMP_DIR=%TEMP%\ipod_setup_temp"
@@ -51,7 +91,13 @@ echo [OK] Node.js is ready
 
 echo.
 echo [2/3] Checking Python...
-where python >nul 2>&1
+
+REM First, try to disable the Microsoft Store Python alias
+echo [DEBUG] Disabling Windows Python app execution alias...
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\App Execution Aliases\python.exe" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\App Execution Aliases\python3.exe" /f >nul 2>&1
+
+"C:\Windows\System32\where.exe" python >nul 2>&1
 if errorlevel 1 (
     echo [*] Installing Python 3.12.1...
     set "PY_EXE=!TEMP_DIR!\python.exe"
@@ -79,7 +125,7 @@ if errorlevel 1 (
     set "PATH=!SYSTEM_PATH!;%PATH%"
 )
 
-python --version >nul 2>&1
+"C:\Windows\System32\where.exe" python >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Python is not available - installation may have failed
     exit /b 1
@@ -90,34 +136,68 @@ python --version
 echo.
 setx PATH "C:\nodejs;C:\Python312;C:\Program Files\Python312;!SYSTEM_PATH!" >nul 2>&1
 if errorlevel 1 (
-    echo [WARNING] setx failed, but PATH may still be updated for this session
+    echo [WARNING] setx failed - likely no admin privileges
+    echo [INFO] Attempting to set PATH via registry directly...
+    
+    REM Try to set in registry if we have admin
+    for /f "tokens=2*" %%A in ('C:\Windows\System32\reg.exe query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v PATH') do set "CURRENT_PATH=%%B"
+    
+    if not "!CURRENT_PATH!"=="" (
+        echo [DEBUG] Current PATH from registry: !CURRENT_PATH!
+        
+        REM Check if C:\nodejs is already in PATH
+        echo !CURRENT_PATH! | C:\Windows\System32\findstr.exe /i "nodejs" >nul
+        if errorlevel 1 (
+            REM Add it
+            set "NEW_PATH=C:\nodejs;!CURRENT_PATH!"
+            echo [DEBUG] Adding C:\nodejs to PATH...
+            C:\Windows\System32\reg.exe add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v PATH /d "!NEW_PATH!" /f >nul 2>&1
+            if errorlevel 1 (
+                echo [WARNING] Could not modify HKLM registry - not running as admin
+                echo [INFO] Setting PATH for current session only
+                set "PATH=C:\nodejs;!PATH!"
+            ) else (
+                echo [OK] PATH updated in registry
+            )
+        ) else (
+            echo [OK] C:\nodejs already in PATH
+        )
+    ) else (
+        echo [DEBUG] Could not read current PATH from registry
+        echo [INFO] Setting PATH for current session only
+        set "PATH=C:\nodejs;!PATH!"
+    )
+) else (
+    echo [OK] PATH successfully set via setx
 )
 
 echo.
 echo [3/3] Installing npm dependencies...
-cd /d "%~dp0"
-if errorlevel 1 (
-    echo [ERROR] Failed to change to project directory
-    exit /b 1
+
+REM Check if package.json exists - if not, we're in packaged app, skip npm
+if not exist "!PROJECT_DIR!\package.json" (
+    echo [INFO] package.json not found - running from packaged app, skipping npm install
+    echo [INFO] npm dependencies are already bundled with the application
+) else (
+    cd /d "!PROJECT_DIR!"
+    if errorlevel 1 (
+        echo [ERROR] Failed to change to project directory: !PROJECT_DIR!
+        exit /b 1
+    )
+
+    echo [DEBUG] Current directory: %cd%
+    echo [DEBUG] Setting PATH for npm...
+    set "PATH=C:\nodejs;!PATH!"
+
+    echo [DEBUG] Running: npm install
+    call C:\nodejs\npm.cmd install
+    if errorlevel 1 (
+        echo [ERROR] npm install failed - see above for details
+        exit /b 1
+    )
+
+    echo [OK] npm install completed successfully
 )
-
-if not exist "package.json" (
-    echo [ERROR] package.json not found in current directory: %cd%
-    exit /b 1
-)
-
-echo [DEBUG] Current directory: %cd%
-echo [DEBUG] Setting PATH for npm...
-set "PATH=C:\nodejs;!PATH!"
-
-echo [DEBUG] Running: npm install
-call C:\nodejs\npm.cmd install
-if errorlevel 1 (
-    echo [ERROR] npm install failed - see above for details
-    exit /b 1
-)
-
-echo [OK] npm install completed successfully
 
 echo.
 echo [*] Installing Python dependencies...

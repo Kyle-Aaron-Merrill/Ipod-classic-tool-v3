@@ -111,9 +111,30 @@ export async function get_yt_dlp_link(url, media, album, track) {
         browser = await puppeteer.launch(launchOptions);
         const page = await browser.newPage();
         
+        // --- SPECIAL HANDLING: YouTube Music browse URLs ---
+        // If it's a music.youtube.com browse URL, resolve it to a playlist URL first
+        let workingUrl = url;
+        if (url.includes('music.youtube.com/browse/')) {
+            console.error(`[yt-dlp-link] Detected YouTube Music browse URL, resolving to playlist...`);
+            try {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+                const resolvedUrl = await page.url();
+                console.error(`[yt-dlp-link] Resolved to: ${resolvedUrl}`);
+                
+                if (resolvedUrl.includes('/playlist?list=')) {
+                    workingUrl = resolvedUrl;
+                    console.error(`[yt-dlp-link] Using resolved playlist URL for search`);
+                } else {
+                    console.error(`[yt-dlp-link] Could not resolve to playlist, falling back to original`);
+                }
+            } catch (e) {
+                console.error(`[yt-dlp-link] Browse resolution failed: ${e.message}, using original URL`);
+            }
+        }
+        
         // --- STEP 1: Find the Primary Artist Channel ---
-        console.error(`[yt-dlp-link] Attempting to find primary channel for: ${url}`);
-        await page.goto(url, { waitUntil: 'networkidle2' });
+        console.error(`[yt-dlp-link] Attempting to find primary channel for: ${workingUrl}`);
+        await page.goto(workingUrl, { waitUntil: 'networkidle2' });
 
         const channelSelector = 'ytd-channel-renderer a#main-link';
         let channelUrl = null;
@@ -130,17 +151,11 @@ export async function get_yt_dlp_link(url, media, album, track) {
         if (channelUrl) {
             foundAlbum = await searchChannelForAlbum(page, channelUrl, album);
         }
-
+        
         // 3. Fallback to Topic Channel
         if (!foundAlbum) {
           // FIX: Use the extracted Name, not the URL, to search for Topic
-          const artistUrl = new URL(url);
-          const artistName = artistUrl.searchParams.get('search_query');
-          const topicSearchQuery = `${normalize(artistName)} topic`;
-          console.error(`[yt-dlp-link] Not found. Searching Topic channel for: "${topicSearchQuery}"`);
-          
-          const topicSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(topicSearchQuery)}&sp=EgIQAg%253D%253D`;
-          await page.goto(topicSearchUrl, { waitUntil: 'networkidle2' });
+          const artistUrl = new URL(workingUrl);
           
           await page.waitForSelector(channelSelector, { timeout: 5000 });
           const topicChannelUrl = await page.$eval(channelSelector, el => el.href);

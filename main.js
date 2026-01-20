@@ -1,14 +1,15 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
 import path, { normalize, resolve } from 'path';
 import fs from 'fs'; 
 import os from 'os';
 import crypto from 'crypto';
-import { exec, fork, execSync } from 'child_process';
+import { exec, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { get } from 'http';
 import { url } from 'inspector';
 import { rejects } from 'assert';
 import { getPythonCommand, escapePath } from './utils/platform-utils.js';
+import { getChromePath } from './utils/puppeteer-config.js';
 import { embedMetadataFromManifest } from './scripts/embed_from_manifest.js';
 import { fetchMetadataWithGPT } from './scripts/fetch_gpt_meta.js';
 import { getTrackUrl } from './scripts/get_track_url.js';
@@ -76,11 +77,18 @@ const originalError = console.error;
 let isLogging = false;
 
 console.log = (...args) => {
+    const message = args.join(' ');
     originalLog(...args);
+    
+    // Write to terminal stdout (for packaged apps)
+    if (process.stdout && process.stdout.writable) {
+        process.stdout.write(message + '\n');
+    }
+    
     if (loggingEnabled && !isLogging) {
         isLogging = true;
         try {
-            writeLog(`[LOG] ${args.join(' ')}`);
+            writeLog(`[LOG] ${message}`);
         } catch (err) {
             originalError(`Failed to write log: ${err.message}`);
         } finally {
@@ -89,11 +97,18 @@ console.log = (...args) => {
     }
 };
 console.error = (...args) => {
+    const message = args.join(' ');
     originalError(...args);
+    
+    // Write to terminal stderr (for packaged apps)
+    if (process.stderr && process.stderr.writable) {
+        process.stderr.write(message + '\n');
+    }
+    
     if (loggingEnabled && !isLogging) {
         isLogging = true;
         try {
-            writeLog(`[ERROR] ${args.join(' ')}`);
+            writeLog(`[ERROR] ${message}`);
         } catch (err) {
             // Silently fail to prevent double-error recursion
         } finally {
@@ -137,6 +152,33 @@ function checkDependencies() {
 }
 
 function areDependenciesMissing() {
+    // Check for force setup flag (for testing)
+    if (process.env.IPOD_FORCE_SETUP === 'true') {
+        console.log("[MAIN] IPOD_FORCE_SETUP is set - showing setup window");
+        return true;
+    }
+    
+    // Check if setup was completed recently (bypass checks if so)
+    try {
+        if (fs.existsSync(CONFIG_PATH)) {
+            const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+            if (config.setupCompleted === true) {
+                const setupTime = new Date(config.setupCompletedAt).getTime();
+                const now = Date.now();
+                const timeSinceSetup = now - setupTime;
+                
+                // If setup was completed less than 2 hours ago, assume dependencies are installed
+                // (they might not show up in PATH until reboot, but they're installed)
+                if (timeSinceSetup < 2 * 60 * 60 * 1000) {
+                    console.log("[MAIN] Setup was recently completed - skipping dependency check");
+                    return false;
+                }
+            }
+        }
+    } catch (configErr) {
+        console.warn("[MAIN] Error checking setup completion flag:", configErr.message);
+    }
+    
     try {
         execSync('where node', { stdio: 'pipe' });
     } catch (e) {
@@ -191,8 +233,8 @@ function launchCookieExporter() {
             
             // Use fork instead of exec to avoid path issues in packaged apps
             // Fork directly with Node instead of trying to call 'npx electron'
-            const child = fork(exporterPath, ['youtube', COOKIES_PATH], {
-                stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+            const child = utilityProcess.fork(exporterPath, ['youtube', COOKIES_PATH], {
+                stdio: ['ignore', 'pipe', 'pipe']
             });
             
             let stdoutData = '';
@@ -265,48 +307,26 @@ function download(manifestPath, uiLog) {
     return new Promise((resolve, reject) => {
         console.log(`[Main] ⬇️ Starting Downloader for manifest: ${manifestPath}`);
         
-        // Use fork WITHOUT 'inherit' to allow IPC (Inter-Process Communication)
-        const downloader = fork(DOWNLOADER_PATH, [manifestPath]);
+        console.log(`[Downloader] Spawning utility process: ${DOWNLOADER_PATH}`);
+        const downloader = utilityProcess.fork(DOWNLOADER_PATH, [manifestPath], {
+            stdio: 'pipe'
+        });
+        
+        let errorOutput = '';
 
-        // 1. Listen for IPC messages from the downloader script
-        downloader.on('message', async (msg) => {
-            // Forward real-time progress to the Renderer (UI)
-            if (msg.type === 'PROGRESS') {
-                if (mainWindow) {
-                    mainWindow.webContents.send('progress-update', {
-                        type: 'file',
-                        value: msg.value // This is the % from downloader.js
-                    });
-                }
-            }
-
-            // Handle downloader errors
-            if (msg.type === 'ERROR') {
-                if (uiLog) uiLog(`❌ [Downloader Error] ${msg.message}`);
-                console.error(`[Main] Downloader error: ${msg.message}`);
-                downloader.kill();
-                reject(new Error(msg.message));
-            }
-
-            // Handle the 403 Forbidden / Cookie refresh fix
-            if (msg.type === 'REFRESH_COOKIES_REQUEST') {
-                if (uiLog) uiLog("⚠️ [Main] Downloader requested cookie refresh...");
-                
-                try {
-                    // This should trigger your existing cookie export logic
-                    await launchCookieExporter(); 
-                    
-                    // Tell the downloader it's safe to try again
-                    downloader.send({ type: 'REFRESH_COOKIES_DONE' });
-                    if (uiLog) uiLog("✅ [Main] Cookies refreshed. Resuming download...");
-                } catch (err) {
-                    if (uiLog) uiLog(`❌ [Main] Cookie refresh failed: ${err.message}`);
-                }
-            }
+        // Listen for stdout 
+        downloader.stdout?.on('data', (data) => {
+            console.log(`[Downloader-stdout]`, data.toString());
         });
 
-        // 2. Handle Downloader Close & Metadata Embedding
-        downloader.on('close', async (code) => {
+        // Listen for stderr
+        downloader.stderr?.on('data', (data) => {
+            errorOutput += data.toString();
+            console.error(`[Downloader-stderr]`, data.toString());
+        });
+
+        // Handle exit
+        downloader.on('exit', async (code) => {
             if (code === 0) {
                 console.log("[Main] Downloader finished. Starting Metadata Embedding...");
                 
@@ -410,21 +430,24 @@ async function extractGptMeta(manifestPath) {
 async function extractYoutubeDlpLinkFromQuery(artistUrl, media, album, track){
     return new Promise((resolve, reject) => {
         try {
-            const child = fork(DLP_PATH, [artistUrl, media, album, track]);
+            console.log(`[DLP] Spawning utility process: ${DLP_PATH}`);
+            console.log(`[DLP] Args:`, [artistUrl, media, album, track]);
+            
+            const child = utilityProcess.fork(DLP_PATH, [artistUrl, media, album, track], {
+                stdio: 'pipe'
+            });
             let output = '';
             let errorOutput = '';
 
-            child.on('message', (msg) => {
-                if (msg.type === 'output') {
-                    output += msg.data;
-                }
+            child.stdout?.on('data', (data) => {
+                output += data.toString();
             });
 
             child.stderr?.on('data', (data) => {
                 errorOutput += data.toString();
             });
 
-            child.on('close', (code) => {
+            child.on('exit', (code) => {
                 if (code === 0 && output) {
                     try {
                         const finalYoutubeLink = output.trim();
@@ -468,23 +491,42 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
         let timeoutHandle = null;
 
         try {
-            // Handle asar paths: if we're in an asar archive, we need to use a different path
+            // utilityProcess handles asar paths automatically
             let converterPath = CONVERTER_PATH;
-            console.log(`[LinkConverter] 🔍 Checking if running from asar...`);
-            if (process.mainModule && process.mainModule.filename.includes('.asar')) {
-                // We're running from asar - use app.getAppPath() instead
-                converterPath = path.join(app.getAppPath(), 'scripts', 'link-convert.js');
-                console.log(`[LinkConverter] ✅ Detected asar environment, using: ${converterPath}`);
+            console.log(`[LinkConverter] 🔍 Resolving script path...`);
+            if (app.isPackaged) {
+                // Electron will handle app.asar.unpacked automatically
+                converterPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'scripts', 'link-convert.js');
+                console.log(`[LinkConverter] ✅ Packaged app, using: ${converterPath}`);
             } else {
                 console.log(`[LinkConverter] ℹ️ Running from source, using: ${converterPath}`);
+            }
+
+            // Force Puppeteer to use the bundled Chrome if we can find it
+            const bundledChrome = getChromePath('main-spawn');
+            if (bundledChrome) {
+                console.log(`[LinkConverter] ✅ Bundled Chrome resolved for child: ${bundledChrome}`);
+            } else {
+                console.warn(`[LinkConverter] ⚠️ Bundled Chrome not resolved at spawn time; child will auto-detect`);
             }
             
             console.log(`[LinkConverter] ▶️ Starting link converter for: ${url}`);
             console.log(`[LinkConverter] Manifest: ${manifestPath}`);
             
-            const child = fork(converterPath, [url, manifestPath]);
+            const child = utilityProcess.fork(converterPath, [url, manifestPath], {
+                stdio: ['ignore', 'pipe', 'pipe'],  // stdin: ignore, stdout: pipe, stderr: pipe
+                env: {
+                    ...process.env,
+                    // Strongly hint Puppeteer to use the bundled Chrome
+                    PUPPETEER_EXECUTABLE_PATH: bundledChrome || process.env.PUPPETEER_EXECUTABLE_PATH,
+                    // Ensure consistent cache dir if it ever tries to fetch
+                    PUPPETEER_CACHE_DIR: process.env.PUPPETEER_CACHE_DIR || path.join(app.getPath('home'), '.cache', 'puppeteer')
+                }
+            });
             let output = '';
             let errorOutput = '';
+
+            console.log(`[LinkConverter] 🔧 utilityProcess spawned, pid: ${child.pid || 'pending'}`);
 
             // Add 60 second timeout for the converter process
             timeoutHandle = setTimeout(() => {
@@ -494,71 +536,118 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
                     try {
                         child.kill();
                     } catch (e) {
-                        // ignore
+                        console.error(`[LinkConverter] ❌ Error killing process:`, e.message);
                     }
                     reject(new Error("Link converter timed out - likely Puppeteer crash on Windows"));
                 }
             }, 60000);
 
-            child.on('message', (msg) => {
-                if (msg.type === 'output') {
-                    output += msg.data;
-                    console.log(`[LinkConverter] Message: ${msg.data}`);
-                }
+            // Capture spawn event (confirms process started)
+            child.on('spawn', () => {
+                console.log(`[LinkConverter] ✅ Process spawned successfully, pid: ${child.pid}`);
+            });
+
+            // Capture any errors from utilityProcess itself (not the script)
+            child.on('error', (err) => {
+                if (processFinished) return;
+                processFinished = true;
+                if (timeoutHandle) clearTimeout(timeoutHandle);
+                console.error(`[LinkConverter] ❌ utilityProcess error (failed to spawn or IPC issue):`, err.message);
+                console.error(`[LinkConverter] ❌ Error stack:`, err.stack);
+                reject(new Error(`utilityProcess error: ${err.message}`));
             });
 
             child.stdout?.on('data', (data) => {
-                const msg = data.toString().trim();
-                console.log(`[LinkConverter-stdout] ${msg}`);
+                const msg = data.toString();
+                if (msg.trim()) {
+                    // All stdout goes into output buffer
+                    output += msg;
+                    // Log for debugging
+                    const preview = msg.trim().substring(0, 100);
+                    if (msg.trim().startsWith('{') || msg.trim().startsWith('[')) {
+                        console.log(`[LinkConverter-stdout] [JSON] ${preview}...`);
+                    } else {
+                        console.log(`[LinkConverter-stdout] ${preview}...`);
+                    }
+                }
             });
 
             child.stderr?.on('data', (data) => {
-                const msg = data.toString().trim();
-                errorOutput += msg;
-                console.error(`[LinkConverter-stderr] ${msg}`);
+                const msg = data.toString();
+                if (msg.trim()) {
+                    errorOutput += msg;
+                    console.error(`[LinkConverter-stderr] ${msg.trim()}`);
+                }
             });
 
-            child.on('close', (code) => {
-                if (processFinished) return; // Already timed out
+            child.on('exit', (code) => {
+                if (processFinished) return; // Already timed out or errored
                 processFinished = true;
                 if (timeoutHandle) clearTimeout(timeoutHandle);
 
                 console.log(`[LinkConverter] Process exited with code: ${code}`);
                 console.log(`[LinkConverter] Output length: ${output.length} bytes`);
                 if (errorOutput) {
-                    console.error(`[LinkConverter] ❌ STDERR output:\n${errorOutput}`);
+                    console.log(`[LinkConverter] STDERR (diagnostic only):\n${errorOutput.substring(0, 500)}...`);
                 }
 
                 try {
-                    if (code === 0 && output) {
-                        console.log(`[LinkConverter] ✅ Parsing JSON output...`);
-                        const rawResults = JSON.parse(output.trim());
+                    // Success if exit code is 0. Child process writes diagnostics to stderr, JSON to stdout
+                    if (code === 0) {
+                        console.log(`[LinkConverter] ✅ Process completed successfully (exit code 0)`);
                         
-                        // Convert array format to query object format
-                        const queryObj = {};
-                        for (const item of rawResults) {
-                            if (item.Captured_URL) queryObj.capturedUrl = item.Captured_URL;
-                            if (item.Service) queryObj.service = item.Service;
-                            if (item.Media) queryObj.media = item.Media;
-                            if (item.Artist) queryObj.artistUrl = item.Artist;
-                            if (item.Album) queryObj.album = item.Album;
-                            if (item.Track) queryObj.track = item.Track;
-                            if (item.ChannelUrl) queryObj.channelUrl = item.ChannelUrl;
-                        }
-                        
-                        console.log(`[LinkConverter] ✅ Successfully extracted: ${JSON.stringify(queryObj)}`);
-                        resolve(queryObj);
-                    } else {
-                        if (code !== 0) {
-                            console.error(`[LinkConverter] ❌ Exit code ${code}`);
-                            if (!errorOutput) {
-                                console.error(`[LinkConverter] ❌ No error details captured. This may be a Puppeteer/Chromium issue.`);
-                                console.error(`[LinkConverter] ❌ Suggestions:`);
-                                console.error(`[LinkConverter]    1. Ensure Chromium dependencies are installed`);
-                                console.error(`[LinkConverter]    2. Try disabling hardware acceleration`);
-                                console.error(`[LinkConverter]    3. Check antivirus isn't blocking Puppeteer`);
-                                console.error(`[LinkConverter]    4. Restart the application`);
+                        // Try to parse JSON output if present
+                        if (output && output.trim()) {
+                            console.log(`[LinkConverter] ✅ Parsing JSON output...`);
+                            
+                            // Try to extract JSON from output (handle mixed stdout)
+                            let jsonString = output.trim();
+                            
+                            // If output contains non-JSON text, try to find the JSON line
+                            if (!jsonString.startsWith('[') && !jsonString.startsWith('{')) {
+                                // Split by lines and find the last line that looks like JSON
+                                const lines = output.split('\n');
+                                for (let i = lines.length - 1; i >= 0; i--) {
+                                    const line = lines[i].trim();
+                                    if (line.startsWith('[') || line.startsWith('{')) {
+                                        jsonString = line;
+                                        console.log(`[LinkConverter] Found JSON at line ${i + 1}`);
+                                        break;
+                                    }
+                                }
                             }
+                            
+                            const rawResults = JSON.parse(jsonString);
+                            
+                            // Convert array format to query object format
+                            const queryObj = {};
+                            for (const item of rawResults) {
+                                if (item.Captured_URL) queryObj.capturedUrl = item.Captured_URL;
+                                if (item.Service) queryObj.service = item.Service;
+                                if (item.Media) queryObj.media = item.Media;
+                                if (item.Artist) queryObj.artistUrl = item.Artist;
+                                if (item.Album) queryObj.album = item.Album;
+                                if (item.Track) queryObj.track = item.Track;
+                                if (item.ChannelUrl) queryObj.channelUrl = item.ChannelUrl;
+                            }
+                            
+                            console.log(`[LinkConverter] ✅ Successfully extracted: ${JSON.stringify(queryObj)}`);
+                            resolve(queryObj);
+                        } else {
+                            console.log(`[LinkConverter] ℹ️  No stdout JSON (expected if using manifest-based workflow)`);
+                            console.log(`[LinkConverter] ✅ Treating exit code 0 as success`);
+                            // Return empty/null result; caller should check manifest
+                            resolve(null);
+                        }
+                    } else {
+                        console.error(`[LinkConverter] ❌ Exit code ${code}`);
+                        if (!errorOutput) {
+                            console.error(`[LinkConverter] ❌ No error details captured. This may be a Puppeteer/Chromium issue.`);
+                            console.error(`[LinkConverter] ❌ Suggestions:`);
+                            console.error(`[LinkConverter]    1. Ensure Chromium dependencies are installed`);
+                            console.error(`[LinkConverter]    2. Try disabling hardware acceleration`);
+                            console.error(`[LinkConverter]    3. Check antivirus isn't blocking Puppeteer`);
+                            console.error(`[LinkConverter]    4. Restart the application`);
                         }
                         reject(new Error(`Link converter failed: exit code ${code}`));
                     }
@@ -661,10 +750,46 @@ async function processLinks() {
             }
 
             if (!query) {
-                console.error(`[Pipeline-${jobId}] [Step 2/7] ❌ Query is invalid`);
-                uiLog(`[!] ⚠️  SKIPPING: Could not extract metadata from URL.`);
-                if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
-                return;
+                console.log(`[Pipeline-${jobId}] [Step 2/7] ℹ️  Query is null, checking if manifest was populated...`);
+                // Child process may have written metadata to manifest instead of returning JSON
+                try {
+                    const manifestData = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+                    console.log(`[Pipeline-${jobId}] [Step 2/7] Manifest data keys:`, Object.keys(manifestData));
+                    
+                    // Check if we have album metadata in manifest (stored at root level)
+                    if (manifestData.Album_Title && manifestData.Primary_Artist) {
+                        console.log(`[Pipeline-${jobId}] [Step 2/7] ✅ Found metadata in manifest, reconstructing query...`);
+                        
+                        // Use resolved_url if available (from browse link resolution), otherwise use original URL
+                        const urlToUse = manifestData.resolved_url || linkObj.url;
+                        console.log(`[Pipeline-${jobId}] [Step 2/7] Using URL for query: ${urlToUse}${manifestData.resolved_url ? ' (resolved)' : ''}`);
+                        
+                        // For YouTube Music URLs, use them as the channelUrl (direct link to content)
+                        const isYouTubeMusicUrl = urlToUse.includes('music.youtube.com') || urlToUse.includes('youtube.com');
+                        
+                        query = {
+                            service: 'youtube music',
+                            media: 'album',
+                            artistUrl: manifestData.Primary_Artist || 'Various Artists',
+                            album: manifestData.Album_Title,
+                            track: 'Full Album',
+                            capturedUrl: urlToUse,
+                            channelUrl: isYouTubeMusicUrl ? urlToUse : null
+                        };
+                        console.log(`[Pipeline-${jobId}] [Step 2/7] ✅ Reconstructed query:`, query);
+                    } else {
+                        console.error(`[Pipeline-${jobId}] [Step 2/7] ❌ No Album_Title or Primary_Artist in manifest`);
+                        console.error(`[Pipeline-${jobId}] [Step 2/7] Manifest has:`, manifestData);
+                        uiLog(`[!] ⚠️  SKIPPING: Could not extract metadata from URL.`);
+                        if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
+                        return;
+                    }
+                } catch (manifestErr) {
+                    console.error(`[Pipeline-${jobId}] [Step 2/7] ❌ Failed to read manifest: ${manifestErr.message}`);
+                    uiLog(`[!] ⚠️  SKIPPING: Could not extract metadata from URL.`);
+                    if (mainWindow) mainWindow.webContents.send('download-status', { id: linkObj.url, status: 'skipped' });
+                    return;
+                }
             }
 
             // For soundtracks and compilations, we might not have an artistUrl but we should still proceed
@@ -683,10 +808,12 @@ async function processLinks() {
 
             // Check if channelUrl is already a direct YouTube URL (not a search URL)
             let yt_dlp_link = null;
-            if (query.channelUrl && query.channelUrl.includes('youtube.com') && 
+            if (query.channelUrl && 
+                (query.channelUrl.includes('youtube.com') || query.channelUrl.includes('music.youtube.com')) && 
                 (query.channelUrl.includes('/watch?v=') || query.channelUrl.includes('/playlist?list='))) {
                 // It's already a direct YouTube link, use it directly
                 console.log(`[Pipeline-${jobId}] [Step 3/7] Direct YouTube URL detected, skipping channel search`);
+                console.log(`[Pipeline-${jobId}] [Step 3/7] Using URL: ${query.channelUrl}`);
                 yt_dlp_link = query.channelUrl;
             } else {
                 // Need to search for the artist channel and find the release
@@ -1077,6 +1204,7 @@ function createSetupWindow() {
 }
 
 function createDependencyWindow() {
+    console.log("[MAIN] Creating dependency window...");
     let depWindow = new BrowserWindow({
         width: 800,
         height: 900,
@@ -1085,13 +1213,29 @@ function createDependencyWindow() {
         icon: ICON_PATH,
         webPreferences: { preload: PRELOAD_JS_PATH, contextIsolation: true, nodeIntegration: false }
     });
+    console.log("[MAIN] Window object created");
+    
     depWindow.loadFile(DEPENDENCY_SETUP_PATH);
+    console.log("[MAIN] Dependency setup HTML loaded");
     
     // Setup dependency handlers
     setupDependencyHandlers(depWindow);
+    console.log("[MAIN] Dependency handlers set up");
     
     depWindow.on('closed', () => {
+        console.log("[MAIN] Dependency window closed");
         depWindow = null;
+        // Launch the main app window after dependency setup completes
+        console.log("[MAIN] Launching main app window...");
+        createWindow();
+    });
+    
+    depWindow.webContents.on('did-finish-load', () => {
+        console.log("[MAIN] Dependency window content loaded successfully");
+    });
+    
+    depWindow.webContents.on('crashed', () => {
+        console.error("[MAIN] Dependency window crashed!");
     });
     
     return depWindow;

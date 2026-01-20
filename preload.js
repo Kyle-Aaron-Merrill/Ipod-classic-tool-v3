@@ -16,7 +16,9 @@ contextBridge.exposeInMainWorld('linkAPI', {
     startDownload: () => ipcRenderer.send('download:start'),
     exportCookies: (service) => ipcRenderer.send('export-cookies', service),
     removeLink: (url) => ipcRenderer.send('delete-video-url', url),
-    onProgressUpdate: (callback) => ipcRenderer.on('progress-update', (event, data) => callback(data))
+    onProgressUpdate: (callback) => ipcRenderer.on('progress-update', (event, data) => callback(data)),
+    onDownloadStatus: (callback) => ipcRenderer.on('download-status', (event, value) => callback(value)),
+    removeDownloadListeners: () => ipcRenderer.removeAllListeners('download-status')
 });
 
 contextBridge.exposeInMainWorld('systemAPI', {
@@ -48,8 +50,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getConfig: () => ipcRenderer.invoke('get-config'),
     getConcurrencyInfo: () => ipcRenderer.invoke('get-concurrency-info'),
     getBrowseUrl: (rawLink) => ipcRenderer.invoke('get-browse-url', rawLink),
-    onDownloadStatus: (callback) => ipcRenderer.on('download-status', (event, value) => callback(value)),
-    removeDownloadListeners: () => ipcRenderer.removeAllListeners('download-status'),
     getDownloadPath: () => ipcRenderer.invoke('get-download-path'),
     saveConfig: (config) => {
         sendIpc('save-config', config);

@@ -45,6 +45,10 @@
             margin: 4px 0;
             white-space: pre-wrap;
             word-break: break-word;
+            min-height: 1em;
+            display: block;
+            visibility: visible;
+            opacity: 1;
         }
         .output-success { color: #86efac; }
         .output-error { color: #f87171; }
@@ -129,9 +133,13 @@
                 <button id="closeBtn" class="px-6 py-2 bg-gray-300 text-gray-800 font-semibold rounded-lg hover:bg-gray-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
                     Close
                 </button>
-                <button id="runSetupBtn" class="px-6 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-lg hover:from-blue-600 hover:to-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                <button id="runSetupBtn" class="px-6 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-lg hover:from-blue-600 hover:to-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2" style="display: none;">
                     <span>▶</span>
                     Run Setup
+                </button>
+                <button id="finishBtn" class="px-6 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold rounded-lg hover:from-green-600 hover:to-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2" style="display: none;">
+                    <span>✓</span>
+                    Finish
                 </button>
             </div>
         </div>
@@ -143,17 +151,54 @@
     </div>
 
     <script>
+        // Log immediately to verify script is loaded
+        console.log('[Dependency Setup] Script started - page loaded');
+        
         // Use ipcRenderer from preload
         const runSetupBtn = document.getElementById('runSetupBtn');
         const closeBtn = document.getElementById('closeBtn');
         const outputContainer = document.getElementById('outputContainer');
+        
+        console.log('[Dependency Setup] Elements found:', {
+            runSetupBtn: !!runSetupBtn,
+            closeBtn: !!closeBtn,
+            outputContainer: !!outputContainer
+        });
+        
+        // Ensure ipcRenderer is available
+        if (!window.ipcRenderer) {
+            console.error('[Dependency Setup] ipcRenderer not available!');
+            document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: IPC communication failed. Please restart the application.</div>';
+        } else {
+            console.log('[Dependency Setup] ipcRenderer is available and ready');
+        }
 
         function appendOutput(message, type = 'info') {
+            console.log(`[appendOutput START] type=${type}, messageLength=${message ? message.length : 0}`);
+            console.log(`[appendOutput] message preview: "${message ? message.substring(0, 100).replace(/\n/g, '\\n') : 'null'}"`);
+            
             const line = document.createElement('div');
             line.className = `output-line output-${type}`;
             line.textContent = message;
+            line.style.minHeight = '20px';
+            line.style.wordWrap = 'break-word';
+            line.style.whiteSpace = 'pre-wrap';
+            
+            console.log(`[appendOutput] Created div element with class: "${line.className}"`);
+            console.log(`[appendOutput] Element.textContent set to message`);
+            console.log(`[appendOutput] Element HTML: ${line.outerHTML.substring(0, 200)}`);
+            
+            if (!message || message.trim() === '') {
+                line.innerHTML = '&nbsp;';
+                console.log(`[appendOutput] Message was empty, set to nbsp`);
+            }
+            
             outputContainer.appendChild(line);
+            console.log(`[appendOutput] Appended to container. Total children: ${outputContainer.children.length}`);
+            
             outputContainer.scrollTop = outputContainer.scrollHeight;
+            console.log(`[appendOutput] Scrolled to bottom. ScrollTop: ${outputContainer.scrollTop}, ScrollHeight: ${outputContainer.scrollHeight}`);
+            console.log(`[appendOutput END]\n`);
         }
 
         function updateStatus(tool, status, version = '') {
@@ -206,6 +251,8 @@
         }
 
         runSetupBtn.addEventListener('click', async () => {
+            console.log('[Setup Button] Click handler fired');
+            console.log(`[Setup Button] ipcRenderer available: ${!!window.ipcRenderer}`);
             runSetupBtn.disabled = true;
             outputContainer.innerHTML = '';
             updateMainStatus('running');
@@ -213,41 +260,118 @@
             appendOutput('Starting setup process...', 'info');
             appendOutput('', 'info');
 
-            ipcRenderer.send('run-setup-bat');
+            console.log('[Setup Button] Sending run-setup-bat message to main process...');
+            if (window.ipcRenderer && typeof window.ipcRenderer.send === 'function') {
+                window.ipcRenderer.send('run-setup-bat');
+                console.log('[Setup Button] Message sent successfully to main process');
+            } else {
+                console.error('[Setup Button] ERROR: ipcRenderer.send not available!');
+                appendOutput('ERROR: Failed to communicate with main process. ipcRenderer not available.', 'error');
+            }
         });
 
         closeBtn.addEventListener('click', () => {
             ipcRenderer.send('close-dependency-window');
         });
 
-        // Listen for setup output
-        ipcRenderer.on('setup-output', (event, message, type) => {
-            appendOutput(message, type);
+        console.log('[SETUP SCRIPT] About to register IPC listeners...');
+        
+        // SIMPLIFIED: Direct IPC listener with inline DOM update
+        window.ipcRenderer.on('setup-output', function() {
+            const args = Array.from(arguments);
+            console.log('[IPC DIRECT] Listener fired with', args.length, 'arguments');
+            console.log('[IPC DIRECT] Raw args:', args);
+            
+            // Get message and type from arguments
+            const message = args[0];
+            const type = args[1] || 'info';
+            
+            console.log('[IPC DIRECT] Parsed - message type:', typeof message, 'length:', message ? message.length : 0);
+            console.log('[IPC DIRECT] Parsed - type:', type);
+            
+            if (!outputContainer) {
+                console.error('[IPC DIRECT] outputContainer not found!');
+                return;
+            }
+            
+            // Create and append directly
+            const line = document.createElement('div');
+            line.className = `output-line output-${type}`;
+            line.textContent = message || '';
+            line.style.minHeight = '20px';
+            
+            outputContainer.appendChild(line);
+            outputContainer.scrollTop = outputContainer.scrollHeight;
+            
+            console.log('[IPC DIRECT] DOM updated successfully');
         });
+        
+        console.log('[SETUP SCRIPT] IPC listener registered');
 
         // Listen for status updates
-        ipcRenderer.on('setup-status', (event, tool, status, version) => {
+        window.ipcRenderer.on('setup-status', function() {
+            const args = Array.from(arguments);
+            const tool = args[0];
+            const status = args[1];
+            const version = args[2];
+            console.log(`[IPC setup-status] tool=${tool}, status=${status}, version=${version}`);
             updateStatus(tool, status, version);
         });
 
         // Listen for completion
-        ipcRenderer.on('setup-complete', (event, success, message) => {
+        window.ipcRenderer.on('setup-complete', function() {
+            const args = Array.from(arguments);
+            const success = args[0];
+            const message = args[1];
+            console.log(`[IPC setup-complete] Listener fired!`);
+            console.log(`[IPC setup-complete] success=${success}, message="${message}"`);
+            console.log(`[IPC setup-complete] Calling updateMainStatus('${success ? 'success' : 'error'}')`);
             updateMainStatus(success ? 'success' : 'error');
+            console.log(`[IPC setup-complete] Status updated`);
             appendOutput('', 'info');
             appendOutput(message, success ? 'success' : 'error');
-            runSetupBtn.disabled = false;
+            console.log(`[IPC setup-complete] Output appended`);
             
-            // Auto-close after 5 seconds if successful
-            if (success) {
-                setTimeout(() => {
-                    ipcRenderer.send('close-dependency-window');
-                }, 5000);
+            // Hide Run Setup button
+            runSetupBtn.style.display = 'none';
+            console.log('[IPC setup-complete] Hid Run Setup button');
+            
+            // Show Finish button
+            const finishBtn = document.getElementById('finishBtn');
+            if (finishBtn) {
+                finishBtn.style.display = 'inline-flex';
+                finishBtn.onclick = () => {
+                    console.log('[finishBtn] Clicked - closing dependency window');
+                    window.ipcRenderer.send('close-dependency-window');
+                };
+                console.log('[IPC setup-complete] Showed Finish button');
+            } else {
+                console.error('[IPC setup-complete] Finish button not found!');
             }
         });
 
         // Initial load - check if setup is needed
-        if (ipcRenderer) {
-            ipcRenderer.send('check-dependencies');
+        if (window.ipcRenderer) {
+            console.log('[Dependency Setup] Page ready, setting up IPC listeners...');
+            
+            // Show Run Setup button initially
+            runSetupBtn.style.display = 'inline-flex';
+            console.log('[Dependency Setup] Run Setup button shown');
+            
+            // Log all listeners
+            console.log('[Dependency Setup] Registering on("setup-output")');
+            console.log('[Dependency Setup] Registering on("setup-status")');
+            console.log('[Dependency Setup] Registering on("setup-complete")');
+            
+            // Send a test message to verify IPC works
+            console.log('[Dependency Setup] Sending IPC test message...');
+            window.ipcRenderer.send('test-ipc', 'Hello from dependency setup');
+            
+            console.log('[Dependency Setup] Page loaded, sending check-dependencies...');
+            window.ipcRenderer.send('check-dependencies');
+            console.log('[Dependency Setup] check-dependencies sent to main process');
+        } else {
+            console.error('[Dependency Setup] ipcRenderer not available at startup!');
         }
     </script>
 </body>

@@ -3,8 +3,57 @@ import path from 'path';
 import { execSync, spawn } from 'child_process';
 import { getPythonCommand } from '../utils/platform-utils.js';
 import { getYtDlpPath } from '../utils/yt-dlp-manager.js';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+// Get directory paths for resolving ffmpeg
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const manifestPath = process.argv[2];
+
+// === GET FFMPEG PATH ===
+function getFfmpegPath() {
+    try {
+        const ffmpegBinary = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+        let ffmpegPath;
+        
+        // Try multiple locations in order
+        const searchPaths = [];
+        
+        // 1. Packaged app locations
+        if (process.resourcesPath) {
+            searchPaths.push(
+                path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', ffmpegBinary),
+                path.join(process.resourcesPath, 'node_modules', 'ffmpeg-static', ffmpegBinary)
+            );
+        }
+        
+        // 2. Development locations
+        searchPaths.push(
+            path.join(__dirname, '..', 'node_modules', 'ffmpeg-static', ffmpegBinary),
+            path.join(process.cwd(), 'node_modules', 'ffmpeg-static', ffmpegBinary)
+        );
+        
+        // Search all paths
+        for (const searchPath of searchPaths) {
+            if (fs.existsSync(searchPath)) {
+                console.log(`[Downloader] ✅ Found ffmpeg at: ${searchPath}`);
+                return searchPath;
+            }
+        }
+        
+        console.warn(`[Downloader] ⚠️  WARNING: ffmpeg-static not found in any of these locations:`);
+        searchPaths.forEach(p => console.warn(`[Downloader]    - ${p}`));
+        console.warn(`[Downloader] yt-dlp will fail to convert audio to MP3`);
+        return null;
+    } catch (err) {
+        console.warn(`[Downloader] WARNING: Could not locate ffmpeg: ${err.message}`);
+        return null;
+    }
+}
+
+const FFMPEG_PATH = getFfmpegPath();
 
 // === INITIAL VALIDATION ===
 if (!manifestPath) {
@@ -188,6 +237,11 @@ async function processAlbum() {
                 '--sleep-requests', '1', '--sleep-interval', '2',
                 '-o', outputPath, globalDownloadUrl
             ];
+            
+            // Add ffmpeg location if available
+            if (FFMPEG_PATH) {
+                args.unshift('--ffmpeg-location', FFMPEG_PATH);
+            }
 
             if (globalDownloadUrl.includes('list=')) {
                 args.push('--playlist-items', String(track.number || index + 1));
@@ -223,11 +277,16 @@ async function processAlbum() {
 }
 
 // Execute with error handling
-processAlbum().catch(err => {
-    console.error(`[Downloader] FATAL ERROR: ${err.message}`);
-    console.error(err.stack);
-    if (process.send) {
-        process.send({ type: 'ERROR', message: err.message });
-    }
-    process.exit(1);
-});
+processAlbum()
+    .then(() => {
+        console.log(`[Downloader] ✅ All tracks processed successfully`);
+        process.exit(0);
+    })
+    .catch(err => {
+        console.error(`[Downloader] FATAL ERROR: ${err.message}`);
+        console.error(err.stack);
+        if (process.send) {
+            process.send({ type: 'ERROR', message: err.message });
+        }
+        process.exit(1);
+    });

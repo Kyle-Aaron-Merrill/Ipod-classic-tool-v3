@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Debug - Direct Message Test</title>
+    <style>
+        body { 
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        .console {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            padding: 15px;
+            height: 600px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        .log { margin: 5px 0; }
+        .info { color: #60a5fa; }
+        .success { color: #86efac; }
+        .error { color: #f87171; }
+        .warning { color: #fbbf24; }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover { background: #0052a3; }
+    </style>
+</head>
+<body>
+    <h1>Setup Debug Console</h1>
+    <div class="console" id="debugConsole"></div>
+    <div>
+        <button onclick="testMessage('Test message', 'info')">Test Info</button>
+        <button onclick="testMessage('Error message', 'error')">Test Error</button>
+        <button onclick="clearConsole()">Clear Console</button>
+    </div>
+
+    <script>
+        const debugConsole = document.getElementById('debugConsole');
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.textContent = `[${timestamp}] ${message}`;
+            debugConsole.appendChild(div);
+            debugConsole.scrollTop = debugConsole.scrollHeight;
+        }
+        
+        function clearConsole() {
+            debugConsole.innerHTML = '';
+            log('Console cleared', 'info');
+        }
+        
+        function testMessage(msg, type) {
+            log(`User triggered test: "${msg}" (${type})`, 'warning');
+        }
+        
+        // Test direct JavaScript logging
+        window.addEventListener('load', () => {
+            log('Page loaded', 'success');
+            log('ipcRenderer available: ' + (!!window.ipcRenderer), window.ipcRenderer ? 'success' : 'error');
+            
+            // Listen for IPC messages
+            if (window.ipcRenderer) {
+                window.ipcRenderer.on('setup-output', (message, type) => {
+                    log(`[IPC RECEIVED] type=${type}, msg="${message}"`, 'info');
+                });
+                
+                log('IPC listener registered for setup-output', 'success');
+            }
+        });
+        
+        // Override console for debugging
+        const originalLog = console.log;
+        console.log = function(...args) {
+            originalLog(...args);
+            log(args.join(' '), 'info');
+        };
+    </script>
+</body>
+</html>

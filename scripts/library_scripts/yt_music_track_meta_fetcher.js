@@ -1,11 +1,12 @@
 import puppeteer from 'puppeteer';
-import { downloadChrome } from '@puppeteer/browsers';
+import { install } from '@puppeteer/browsers';
 import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import * as cheerio from 'cheerio'; // You may need to run: npm install cheerio
 import { url } from 'inspector';
 import os from 'os';
+import { getPuppeteerLaunchOptions } from '../../utils/puppeteer-config.js';
 
 const OUTPUT_DIR = 'assets/lib-json';
 const HTML_FILE = path.join(OUTPUT_DIR, 'Youtube_Music_music_info.html'); 
@@ -20,8 +21,8 @@ if (!fs.existsSync(OUTPUT_DIR)) {
  * Sets environment to allow Puppeteer to download on first launch
  */
 async function ensureChromiumInstalled() {
-    console.log('[Chromium] Downloading Chrome via @puppeteer/browsers...');
-    console.log('[Chromium] This may take 2-5 minutes on first install.');
+    console.error('[Chromium] Downloading Chrome via @puppeteer/browsers...');
+    console.error('[Chromium] This may take 2-5 minutes on first install.');
     
     try {
         // Set cache directory to user's home folder (guaranteed writable)
@@ -29,25 +30,28 @@ async function ensureChromiumInstalled() {
         process.env.PUPPETEER_CACHE_DIR = cacheDir;
         
         // Explicitly download Chrome - this WAITS for completion
-        console.log(`[Chromium] Cache directory: ${cacheDir}`);
-        console.log(`[Chromium] ⏳ Starting download... this may take a few minutes...`);
+        console.error(`[Chromium] Cache directory: ${cacheDir}`);
+        console.error(`[Chromium] ⏳ Starting download... this may take a few minutes...`);
         
-        const browserPath = await downloadChrome({ 
+        const result = await install({ 
             cacheDir: cacheDir,
-            buildId: 'latest',
-            platform: 'win64'
+            browser: 'chrome',
+            buildId: 'stable'
         });
         
-        console.log(`[Chromium] ✅ Chrome successfully downloaded to: ${browserPath}`);
-        console.log(`[Chromium] 🔍 Verifying installation...`);
+        console.error(`[Chromium] ✅ Chrome successfully downloaded to: ${result.executablePath}`);
+        console.error(`[Chromium] 🔍 Verifying installation...`);
         
         // Verify by launching to ensure it's actually usable
-        const testBrowser = await puppeteer.launch({ 
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+        const verifyOptions = getPuppeteerLaunchOptions('yt-track-install-verify');
+        console.error('[Chromium] Verify launch options:', {
+            executablePath: verifyOptions.executablePath || 'auto',
+            executableExists: !!verifyOptions.executablePath && fs.existsSync(verifyOptions.executablePath),
+            headless: verifyOptions.headless
         });
+        const testBrowser = await puppeteer.launch(verifyOptions);
         await testBrowser.close();
-        console.log(`[Chromium] ✅ Chrome verified and working!`);
+        console.error(`[Chromium] ✅ Chrome verified and working!`);
         
         return true;
     } catch (err) {
@@ -87,22 +91,27 @@ function updateManifestFile(filePath, newData) {
  * Captures the full HTML content of the Youtube_Music Music page.
  */
 async function captureYoutubeMusicData(targetUrl, retryCount = 0) {
-    console.log(`\nSTART: Capturing Youtube_Music Music Page for: ${targetUrl}`);
+    console.error(`\nSTART: Capturing Youtube_Music Music Page for: ${targetUrl}`);
 
     // Convert music.youtube.com to www.youtube.com to get proper HTML structure with metadata
     let fetchUrl = targetUrl.replace('music.youtube.com', 'www.youtube.com');
-    console.log(`   → Converted to: ${fetchUrl}`);
+    console.error(`   → Converted to: ${fetchUrl}`);
 
     let browser = null;
     let pageContent = null;
 
     try {
         // Launch browser with timeout protection
+        const launchOptions = getPuppeteerLaunchOptions('yt-track');
+        console.error('[YouTube Music][Launch] Launch options:', {
+            executablePath: launchOptions.executablePath || 'auto',
+            executableExists: !!launchOptions.executablePath && fs.existsSync(launchOptions.executablePath),
+            headless: launchOptions.headless,
+            args: launchOptions.args
+        });
+
         browser = await Promise.race([
-            puppeteer.launch({ 
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox'] 
-            }),
+            puppeteer.launch(launchOptions),
             new Promise((_, reject) => 
                 setTimeout(() => reject(new Error('Puppeteer launch timeout (15s)')), 15000)
             )
@@ -129,7 +138,7 @@ async function captureYoutubeMusicData(targetUrl, retryCount = 0) {
             new Promise((_, reject) => 
                 setTimeout(() => reject(new Error('Player load timeout')), 35000)
             )
-        ]).catch(() => console.log('Player selector timeout - continuing anyway'));
+        ]).catch(() => console.error('Player selector timeout - continuing anyway'));
         
         // Wait for hero image to load (album art)
         await page.waitForSelector('img.yt-video-attribute-view-model__hero-image', { timeout: 10000 }).catch(() => {});
@@ -324,18 +333,18 @@ async function captureYoutubeMusicData(targetUrl, retryCount = 0) {
 
         // Persist the captured page for offline parsing
         fs.writeFileSync(HTML_FILE, pageContent, 'utf8');
-        console.log(`✅ Captured and saved HTML to **${HTML_FILE}**`);
+        console.error(`✅ Captured and saved HTML to **${HTML_FILE}**`);
     } catch (error) {
         const errorMsg = error.message || error.toString();
         
         // Check if it's a Chrome not found error
         if ((errorMsg.includes('Could not find Chrome') || errorMsg.includes('Could not find Chromium')) && retryCount === 0) {
             console.error(`❌ Chrome/Chromium not found!`);
-            console.log(`[Chromium] Auto-installing Chromium...`);
+            console.error(`[Chromium] Auto-installing Chromium...`);
             
             const installSuccess = await ensureChromiumInstalled();
             if (installSuccess) {
-                console.log('[Chromium] Retrying YouTube Music capture...');
+                console.error('[Chromium] Retrying YouTube Music capture...');
                 // Retry once after installation
                 return captureYoutubeMusicData(targetUrl, 1);
             }
@@ -359,7 +368,7 @@ async function captureYoutubeMusicData(targetUrl, retryCount = 0) {
  * Parses the HTML and extracts structured metadata.
  */
 function extractYoutubeMusicMetadata(html, targetUrl, manifestPath) {
-    console.log('START: Extracting metadata from HTML...');
+    console.error('START: Extracting metadata from HTML...');
     const $ = cheerio.load(html);
 
     // Try to extract pre-captured metadata from HTML comment
@@ -368,10 +377,10 @@ function extractYoutubeMusicMetadata(html, targetUrl, manifestPath) {
     if (metadataMatch) {
         try {
             capturedMetadata = JSON.parse(metadataMatch[1]);
-            console.log('✅ Found pre-captured metadata from Puppeteer');
-            console.log('   Duration value:', capturedMetadata.duration);
+            console.error('✅ Found pre-captured metadata from Puppeteer');
+            console.error('   Duration value:', capturedMetadata.duration);
         } catch (e) {
-            console.log('ℹ️ Could not parse pre-captured metadata');
+            console.error('ℹ️ Could not parse pre-captured metadata');
         }
     }
 
@@ -466,8 +475,8 @@ function extractYoutubeMusicMetadata(html, targetUrl, manifestPath) {
     };
 
     exportToJson(finalMetadata, manifestPath);
-    console.log(`\n🎉 Metadata saved to **${manifestPath}**`);
-    console.log(finalMetadata);
+    console.error(`\n🎉 Metadata saved to **${manifestPath}**`);
+    console.error(finalMetadata);
 }
 
 export async function getYoutubeMusicTrackMeta(adamId, manifestPath) {
@@ -565,7 +574,7 @@ async function exportToJson(data, filename) {
         // 2. Pass the object directly to the merge function
         updateManifestFile(filename, cleanMetadata);
         
-        console.log(`✅ Successfully exported metadata to ${filename}`);
+        console.error(`✅ Successfully exported metadata to ${filename}`);
     } catch (err) {
         console.error(`❌ Error writing to JSON file ${filename}:`, err.message);
     }
