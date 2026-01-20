@@ -513,15 +513,21 @@ async function extractQueryFromLinkConversion(manifestPath, url) {
             console.log(`[LinkConverter] ▶️ Starting link converter for: ${url}`);
             console.log(`[LinkConverter] Manifest: ${manifestPath}`);
             
+            // Build env object with only valid values (no undefined)
+            const childEnv = {
+                ...process.env,
+                // Ensure consistent cache dir if it ever tries to fetch
+                PUPPETEER_CACHE_DIR: process.env.PUPPETEER_CACHE_DIR || path.join(app.getPath('home'), '.cache', 'puppeteer')
+            };
+            
+            // Only set executable path if we found it (avoid undefined values)
+            if (bundledChrome) {
+                childEnv.PUPPETEER_EXECUTABLE_PATH = bundledChrome;
+            }
+            
             const child = utilityProcess.fork(converterPath, [url, manifestPath], {
                 stdio: ['ignore', 'pipe', 'pipe'],  // stdin: ignore, stdout: pipe, stderr: pipe
-                env: {
-                    ...process.env,
-                    // Strongly hint Puppeteer to use the bundled Chrome
-                    PUPPETEER_EXECUTABLE_PATH: bundledChrome || process.env.PUPPETEER_EXECUTABLE_PATH,
-                    // Ensure consistent cache dir if it ever tries to fetch
-                    PUPPETEER_CACHE_DIR: process.env.PUPPETEER_CACHE_DIR || path.join(app.getPath('home'), '.cache', 'puppeteer')
-                }
+                env: childEnv
             });
             let output = '';
             let errorOutput = '';
