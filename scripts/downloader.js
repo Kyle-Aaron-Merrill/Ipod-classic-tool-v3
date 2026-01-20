@@ -216,7 +216,28 @@ async function downloadWithRetry(args, track, onProgress) {
 }
 
 async function processAlbum() {
-    const globalDownloadUrl = manifest.download_url;
+    // Get download URL from Query if available, fallback to other fields
+    const globalDownloadUrl = manifest.Query?.channelUrl || manifest.download_url || manifest.Captured_URL;
+    
+    if (!globalDownloadUrl) {
+        throw new Error(`[Downloader] ERROR: No download URL found in manifest. Query: ${JSON.stringify(manifest.Query)}`);
+    }
+    
+    // Ensure Tracks array exists; if not, create a placeholder
+    if (!manifest.Tracks || !Array.isArray(manifest.Tracks) || manifest.Tracks.length === 0) {
+        console.warn(`[Downloader] ⚠️  WARNING: No Tracks array or empty Tracks found in manifest.`);
+        console.warn(`[Downloader] Manifest keys: ${Object.keys(manifest).join(', ')}`);
+        console.warn(`[Downloader] Creating placeholder for full album download.`);
+        manifest.Tracks = [
+            {
+                number: 1,
+                title: "Full Album",
+                status: "pending",
+                duration: "N/A"
+            }
+        ];
+    }
+    
     const tracksToProcess = manifest.Tracks.filter(t => t.status === "pending" || t.status === "failed");
 
     console.log(`[Downloader] Processing ${tracksToProcess.length} tracks from: ${globalDownloadUrl}`);
@@ -229,6 +250,9 @@ async function processAlbum() {
             const safeTitle = track.title.replace(/[\\/:"*?<>|]/g, " ");
             const trackNum = String(track.number || index + 1).padStart(2, '0');
             outputPath = path.join(DOWNLOAD_DIR, `${trackNum} - ${safeTitle} - ${manifest.session_id}.mp3`);
+            
+            // Normalize path to use correct separators for the OS
+            outputPath = path.normalize(outputPath);
             
             // Build Argument Array (Better for spawn)
             const args = [
@@ -243,8 +267,13 @@ async function processAlbum() {
                 args.unshift('--ffmpeg-location', FFMPEG_PATH);
             }
 
-            if (globalDownloadUrl.includes('list=')) {
+            // Only use --playlist-items if we have specific track numbers (not a full album placeholder)
+            if (globalDownloadUrl.includes('list=') && track.title !== "Full Album") {
+                console.log(`[Downloader] Downloading specific track #${track.number} from playlist`);
                 args.push('--playlist-items', String(track.number || index + 1));
+            } else if (globalDownloadUrl.includes('list=') && track.title === "Full Album") {
+                console.log(`[Downloader] Downloading entire playlist (no track filter)`);
+                // Don't add --playlist-items; download the whole playlist
             }
 
             await downloadWithRetry(args, track, (percent) => {

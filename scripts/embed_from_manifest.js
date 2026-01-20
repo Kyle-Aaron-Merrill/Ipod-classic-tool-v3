@@ -144,14 +144,22 @@ async function embedMetadataFromManifest(manifestPath) {
         for (const track of tracks) {
             try {
                 // Find the MP3 file for this track
-                const trackNum = String(track.number || 0).padStart(2, '0');
-                const safeTitle = (track.title || 'Unknown')
-                    .replace(/[<>:"|?*]/g, '')
-                    .substring(0, 50);
+                let filePath = track.local_file_path;
                 
-                const sessionId = manifestData.session_id || 'unknown';
-                const filename = `${trackNum} - ${safeTitle} - ${sessionId}.mp3`;
-                const filePath = path.join(downloadDir, filename);
+                // If no stored path, try to build it from track info
+                if (!filePath) {
+                    const trackNum = String(track.number || 0).padStart(2, '0');
+                    const safeTitle = (track.title || 'Unknown')
+                        .replace(/[<>:"|?*\\/]/g, ' ')
+                        .substring(0, 50);
+                    
+                    const sessionId = manifestData.session_id || 'unknown';
+                    const filename = `${trackNum} - ${safeTitle} - ${sessionId}.mp3`;
+                    filePath = path.join(downloadDir, filename);
+                }
+                
+                // Normalize path: convert forward slashes to backslashes on Windows
+                filePath = path.normalize(filePath);
 
                 if (fs.existsSync(filePath)) {
                     const metadata = {
